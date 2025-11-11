@@ -32,6 +32,14 @@
 					🏷️ 종목 관리
 				</a>
 			</li>
+			<li>
+				<a
+					href="/admin/loginHistory"
+					class:active={$page.route.id?.startsWith('/admin/loginHistory')}
+				>
+					📜 로그인 기록
+				</a>
+			</li>
 		</ul>
 	</nav>
 
@@ -41,7 +49,7 @@
 </div>
 
 <style>
-	/* admin 섹션에만 적용되는 전역 스타일 */
+	/* (스타일은 이전과 동일) */
 	:global(body) {
 		background-color: #f0f2f5;
 	}

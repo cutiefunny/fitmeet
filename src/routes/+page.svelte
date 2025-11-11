@@ -15,7 +15,8 @@
 		Timestamp,
 		updateDoc,
 		arrayUnion,
-		increment // [ 1. 'increment' 임포트 ]
+		increment,
+		addDoc // [ 1. 'addDoc' 임포트 추가 ]
 	} from 'firebase/firestore';
 	import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 
@@ -27,10 +28,13 @@
 	import AlertModal from '$lib/components/AlertModal.svelte';
 	import MatchModal from '$lib/components/MatchModal.svelte';
 
-	// ... (변수 선언은 동일) ...
+	// 'config/stats' 문서 참조
+	const statsDocRef = doc(db, 'config', 'stats');
+
 	let currentUser = null;
 	let defaultAvatar = 'https://placehold.co/100x100/indigo/white?text=ME';
 	let recommendations = [];
+	let sportsList = [];
 	let isLoading = true;
 	let currentProfileIndex = 0;
 	let profileCardInstance;
@@ -43,12 +47,32 @@
 	let matchedProfile = null;
 	let autoSwipeTimer = null;
 
-	// (onMount, onDestroy, handleSubmitProfile, handleEditProfile, 로그인/로그아웃, 모달 핸들러, 데이터 로딩 로직은 모두 동일)
-	// ... (이하 동일한 함수들 생략) ...
-
 	// --- Firebase 인증 상태 감지 ---
 	let unsubscribeAuth;
 	onMount(async () => {
+		// [ 2. 수정 ] onMount 시 'totalVisits' 1 증가
+		try {
+			// (오류가 나도 앱 실행에 영향이 없도록 try/catch로 감쌈)
+			await updateDoc(statsDocRef, {
+				totalVisits: increment(1)
+			});
+		} catch (e) {
+			console.warn('방문자 수 집계 실패:', e.message);
+			// (stats 문서가 아직 없으면 Firestore가 자동으로 생성하지 않으므로,
+			//  최초 1회 수동 생성이 필요할 수 있습니다.)
+		}
+
+		isLoading = true;
+		try {
+			await Promise.all([fetchRecommendations(), fetchSportsList()]);
+		} catch (error) {
+			console.error('초기 데이터 로딩 실패:', error);
+			customAlertMessage = '데이터 로딩 중 오류가 발생했습니다.';
+			showCustomAlert = true;
+		} finally {
+			isLoading = false;
+		}
+
 		unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
 			if (user) {
 				currentUser = {
@@ -92,7 +116,6 @@
 				currentUser = null;
 			}
 		});
-		await fetchRecommendations();
 	});
 
 	onDestroy(() => {
@@ -108,12 +131,17 @@
 				memberData.createdAt = new Date();
 				memberData.likeCount = 3;
 				memberData.lastLikeRecharge = new Date();
-				// [ 2. 수정 ] 신규 생성 시 빈 맵으로 초기화
 				memberData.likesSentCount = {};
 				memberData.likesReceivedCount = {};
 				memberData.matched = [];
+
+				await setDoc(doc(db, 'members', currentUser.uid), memberData, { merge: true });
+				await updateDoc(statsDocRef, {
+					totalMembers: increment(1)
+				});
+			} else {
+				await setDoc(doc(db, 'members', currentUser.uid), memberData, { merge: true });
 			}
-			await setDoc(doc(db, 'members', currentUser.uid), memberData, { merge: true });
 
 			if (currentUser.profile) {
 				alert('프로필이 수정되었습니다!');
@@ -139,7 +167,21 @@
 	async function handleGoogleLogin() {
 		const provider = new GoogleAuthProvider();
 		try {
-			await signInWithPopup(auth, provider);
+			// [ 3. 수정 ] 로그인 성공 시 'loginHistory'에 기록
+			const result = await signInWithPopup(auth, provider);
+			const user = result.user;
+
+			// 백그라운드에서 로그인 기록 (실패해도 UI에 영향 없음)
+			try {
+				await addDoc(collection(db, 'loginHistory'), {
+					userId: user.uid,
+					email: user.email,
+					name: user.displayName,
+					timestamp: new Date()
+				});
+			} catch (historyError) {
+				console.error('로그인 기록 저장 실패:', historyError);
+			}
 		} catch (error) {
 			console.error('Google login error:', error);
 			customAlertMessage = '로그인에 실패했습니다.';
@@ -201,8 +243,23 @@
 		);
 	}
 
+	async function fetchSportsList() {
+		try {
+			const sportsDocRef = doc(db, 'config', 'sports');
+			const docSnap = await getDoc(sportsDocRef);
+			if (docSnap.exists()) {
+				sportsList = docSnap.data().list || [];
+			} else {
+				console.warn('Firestore "config/sports" 문서가 없습니다.');
+				sportsList = [];
+			}
+		} catch (error) {
+			console.error('Error fetching sports list:', error);
+			throw error;
+		}
+	}
+
 	async function fetchRecommendations() {
-		isLoading = true;
 		try {
 			const q = query(collection(db, 'members'));
 			const querySnapshot = await getDocs(q);
@@ -213,8 +270,7 @@
 			recommendations = shuffleArray(allMembers);
 		} catch (error) {
 			console.error('Error fetching recommendations:', error);
-		} finally {
-			isLoading = false;
+			throw error;
 		}
 	}
 
@@ -224,11 +280,6 @@
 			if (member.id === currentUser.uid) {
 				return false;
 			}
-			// [ 3. 수정 ] 'likesSent' 배열 확인 로직 제거 (중복 'LIKE' 허용)
-			/* if (currentUser.profile.likesSent && currentUser.profile.likesSent.includes(member.id)) {
-				return false;
-			} 
-			*/
 			if (currentUser.profile.gender === '남성') {
 				return member.gender === '여성';
 			}
@@ -240,7 +291,6 @@
 			return true;
 		}
 	});
-
 	$: currentProfile = displayRecommendations[currentProfileIndex];
 
 	// --- 자동/수동 스와이프 로직 ---
@@ -285,7 +335,6 @@
 		nextProfile();
 	}
 
-	// [ 4. 'handleLike' 로직 수정 (핵심) ]
 	async function handleLike() {
 		const currentLikes = currentUser.profile.likeCount ?? 0;
 		if (currentLikes <= 0) {
@@ -308,39 +357,47 @@
 				const myProfileRef = doc(db, 'members', myUid);
 				const targetProfileRef = doc(db, 'members', targetUid);
 
-				// 1. 'LIKE' 저장 (1단계 업데이트)
-				// Firestore의 increment를 사용하여 맵의 값을 1 증가시킵니다.
-				// 키에 .이 포함되므로 `[`...`]` 구문을 사용합니다.
+				// 1. 'LIKE' 저장
 				const myUpdatePromise = updateDoc(myProfileRef, {
 					likeCount: newLikeCount,
-					[`likesSentCount.${targetUid}`]: increment(1) // 맵 업데이트
+					[`likesSentCount.${targetUid}`]: increment(1)
 				});
 
 				const targetUpdatePromise = updateDoc(targetProfileRef, {
-					[`likesReceivedCount.${myUid}`]: increment(1) // 맵 업데이트
+					[`likesReceivedCount.${myUid}`]: increment(1)
 				});
 
-				await Promise.all([myUpdatePromise, targetUpdatePromise]);
+				// 'totalLikes' 1 증가
+				const statsUpdatePromise = updateDoc(statsDocRef, {
+					totalLikes: increment(1)
+				});
+
+				await Promise.all([myUpdatePromise, targetUpdatePromise, statsUpdatePromise]);
 
 				// 2. 로컬 상태 업데이트
 				currentUser.profile.likeCount = newLikeCount;
-				// (likesSentCount도 로컬에 반영 - 옵션)
 				if (!currentUser.profile.likesSentCount) currentUser.profile.likesSentCount = {};
-				currentUser.profile.likesSentCount[targetUid] = (currentUser.profile.likesSentCount[targetUid] || 0) + 1;
+				currentUser.profile.likesSentCount[targetUid] =
+					(currentUser.profile.likesSentCount[targetUid] || 0) + 1;
 
-
-				// 3. 매치 확인 (상대방의 likesSentCount 맵에 내 UID가 있는지 확인)
+				// 3. 매치 확인
 				if (targetProfileData.likesSentCount && targetProfileData.likesSentCount[myUid] > 0) {
 					// 🚨 IT'S A MATCH! 🚨
 
-					// 4. 'matched' 필드 업데이트 (2단계 업데이트)
+					// 4. 'matched' 필드 업데이트
 					const myMatchUpdate = updateDoc(myProfileRef, {
 						matched: arrayUnion(targetUid)
 					});
 					const targetMatchUpdate = updateDoc(targetProfileRef, {
 						matched: arrayUnion(myUid)
 					});
-					await Promise.all([myMatchUpdate, targetMatchUpdate]);
+
+					// 'totalMatches' 1 증가
+					const matchStatsUpdate = updateDoc(statsDocRef, {
+						totalMatches: increment(1)
+					});
+
+					await Promise.all([myMatchUpdate, targetMatchUpdate, matchStatsUpdate]);
 
 					if (!currentUser.profile.matched) currentUser.profile.matched = [];
 					currentUser.profile.matched.push(targetUid);
@@ -417,6 +474,7 @@
 		<ProfileFormModal
 			user={currentUser}
 			existingProfile={currentUser.profile}
+			sportsList={sportsList}
 			on:submitProfile={handleSubmitProfile}
 			on:close={closeModals}
 		/>

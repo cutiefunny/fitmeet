@@ -1,3 +1,38 @@
+<script>
+	import { onMount } from 'svelte';
+	import { db } from '$lib/firebase';
+	import { doc, getDoc } from 'firebase/firestore';
+
+	let stats = {
+		totalMembers: 0,
+		totalLikes: 0,
+		totalMatches: 0,
+		totalVisits: 0 // [ 1. 'totalVisits' 추가 ]
+	};
+	let isLoading = true;
+
+	onMount(async () => {
+		isLoading = true;
+		try {
+			const statsDocRef = doc(db, 'config', 'stats');
+			const docSnap = await getDoc(statsDocRef);
+
+			if (docSnap.exists()) {
+				stats = docSnap.data();
+			} else {
+				console.warn('"config/stats" 문서가 없습니다. 기본값 0을 사용합니다.');
+				// [ 2. 기본값에도 'totalVisits' 추가 ]
+				stats = { totalMembers: 0, totalLikes: 0, totalMatches: 0, totalVisits: 0 };
+			}
+		} catch (error) {
+			console.error('Error fetching stats:', error);
+			alert('대시보드 통계를 불러오는 데 실패했습니다.');
+		} finally {
+			isLoading = false;
+		}
+	});
+</script>
+
 <div class="admin-container">
 	<div class="header-area">
 		<h1>📈 대시보드</h1>
@@ -10,32 +45,48 @@
 		<div class="stats-grid">
 			<div class="stat-card">
 				<h4>총 회원 수</h4>
-				<span>(준비중)</span>
+				{#if isLoading}
+					<span>...</span>
+				{:else}
+					<span>{stats.totalMembers || 0}</span>
+				{/if}
 			</div>
 			<div class="stat-card">
-				<h4>오늘 'LIKE' 수</h4>
-				<span>(준비중)</span>
+				<h4>총 'LIKE' 수</h4>
+				{#if isLoading}
+					<span>...</span>
+				{:else}
+					<span>{stats.totalLikes || 0}</span>
+				{/if}
 			</div>
 			<div class="stat-card">
 				<h4>총 매치 수</h4>
-				<span>(준비중)</span>
+				{#if isLoading}
+					<span>...</span>
+				{:else}
+					<span>{stats.totalMatches || 0}</span>
+				{/if}
+			</div>
+			<div class="stat-card">
+				<h4>총 방문 수</h4>
+				{#if isLoading}
+					<span>...</span>
+				{:else}
+					<span>{stats.totalVisits || 0}</span>
+				{/if}
 			</div>
 		</div>
 	</div>
 </div>
 
 <style>
-	/* /admin/members/+page.svelte의 스타일과 일관성을 맞추기 위해 
-        .admin-container와 .header-area 스타일을 가져옵니다. 
-        (추후 이 스타일들을 공통 CSS로 분리할 수도 있습니다.)
-    */
+	/* ... (스타일은 이전과 동일) ... */
 	.admin-container {
-		/* 레이아웃의 padding(30px)을 고려하여 max-width 조정 */
 		max-width: 900px;
 		margin: 0 auto;
 		background-color: #f9f9f9;
 		border-radius: 16px;
-		min-height: calc(100% - 60px); /* 패딩을 고려한 높이 */
+		min-height: calc(100% - 60px);
 	}
 
 	.header-area {
@@ -50,8 +101,6 @@
 		color: #333;
 		margin: 0;
 	}
-
-	/* 대시보드 전용 스타일 */
 	.dashboard-content {
 		padding: 0 25px 25px 25px;
 		font-size: 18px;

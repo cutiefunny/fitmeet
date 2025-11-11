@@ -10,25 +10,16 @@
 		doc,
 		deleteDoc,
 		updateDoc,
-		Timestamp
+		Timestamp,
+		getDoc,
+		increment // [ 1. 'increment' 임포트 추가 ]
 	} from 'firebase/firestore';
 	import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-	// 운동 종목 리스트
-	const sportsList = [
-		'헬스',
-		'러닝',
-		'수영',
-		'필라테스',
-		'요가',
-		'크로스핏',
-		'클라이밍',
-		'자전거',
-		'등산',
-		'테니스',
-		'골프',
-		'기타'
-	];
+	// [ 2. stats 문서 참조 추가 ]
+	const statsDocRef = doc(db, 'config', 'stats');
+
+	let sportsList = [];
 
 	// --- 상태 관리 변수 ---
 	let isFormMode = false;
@@ -60,12 +51,19 @@
 
 	// --- 생명주기 (마운트 시 데이터 불러오기) ---
 	onMount(async () => {
-		await fetchMembers();
+		isLoading = true;
+		try {
+			await Promise.all([fetchMembers(), fetchSportsList()]);
+		} catch (error) {
+			console.error('Error loading initial data:', error);
+			alert('페이지 데이터 로딩 중 오류가 발생했습니다.');
+		} finally {
+			isLoading = false;
+		}
 	});
 
 	// 회원 목록 불러오기 함수
 	async function fetchMembers() {
-		isLoading = true;
 		try {
 			const q = query(collection(db, 'members'), orderBy('createdAt', 'desc'));
 			const querySnapshot = await getDocs(q);
@@ -76,8 +74,26 @@
 		} catch (error) {
 			console.error('Error fetching members:', error);
 			alert('회원 목록을 불러오는 데 실패했습니다.');
-		} finally {
-			isLoading = false;
+			throw error;
+		}
+	}
+
+	// 운동 종목 목록 불러오기 함수
+	async function fetchSportsList() {
+		try {
+			const sportsDocRef = doc(db, 'config', 'sports');
+			const docSnap = await getDoc(sportsDocRef);
+
+			if (docSnap.exists()) {
+				sportsList = docSnap.data().list || [];
+			} else {
+				console.warn('Firestore에 "config/sports" 문서가 없습니다.');
+				sportsList = [];
+			}
+		} catch (error) {
+			console.error('Error fetching sports list:', error);
+			alert('운동 종목 목록을 불러오는 데 실패했습니다.');
+			throw error;
 		}
 	}
 
@@ -141,14 +157,19 @@
 	}
 
 	async function handleDelete(id) {
-		if (!confirm('정말로 이 회원을 삭제하시겠습니까?')) return;
+		if (!confirm('정말로 이 회원을 삭제하시겠습니까? (통계는 차감되지 않습니다)')) return;
 		try {
 			await deleteDoc(doc(db, 'members', id));
 			alert('삭제되었습니다.');
+			// [ 3. 수정 ] 삭제 시에는 fetchMembers만 호출
+			// (통계 차감 로직은 복잡성으로 인해 일단 제외)
+			isLoading = true;
 			await fetchMembers();
+			isLoading = false;
 		} catch (error) {
 			console.error('Error deleting member:', error);
 			alert('삭제 중 오류가 발생했습니다.');
+			isLoading = false;
 		}
 	}
 
@@ -275,23 +296,30 @@
 				likeCount: parseInt(likeCount),
 				updatedAt: new Date()
 			};
-
 			if (editingMemberId) {
 				await updateDoc(doc(db, 'members', editingMemberId), memberData);
 				alert('회원 정보가 수정되었습니다!');
 			} else {
 				memberData.createdAt = new Date();
 				memberData.lastLikeRecharge = Timestamp.fromDate(new Date());
-				// 신규 생성 시 (중복 'LIKE' 카운트용)
 				memberData.likesSentCount = {};
 				memberData.likesReceivedCount = {};
 				memberData.matched = [];
 				await addDoc(collection(db, 'members'), memberData);
+
+				// [ 4. 수정 ] 신규 회원 등록 시 'totalMembers' 1 증가
+				await updateDoc(statsDocRef, {
+					totalMembers: increment(1)
+				});
+
 				alert('새 회원이 등록되었습니다!');
 			}
 			resetForm();
 			isFormMode = false;
-			fetchMembers();
+			// fetchMembers만 다시 호출
+			isLoading = true;
+			await fetchMembers();
+			isLoading = false;
 		} catch (error) {
 			console.error('Error saving member: ', error);
 			alert('저장 중 오류가 발생했습니다: ' + error.message);
@@ -500,9 +528,7 @@
 </div>
 
 <style>
-	/* 이 스타일들은 이제 /admin/+layout.svelte의 
-        .admin-content 내부에서만 적용됩니다.
-    */
+	/* (스타일은 기존과 동일) */
 	.admin-container {
 		max-width: 900px;
 		margin: 0 auto;
