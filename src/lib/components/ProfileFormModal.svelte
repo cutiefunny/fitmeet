@@ -6,20 +6,20 @@
 	/**
 	 * @type {import('svelte').SvelteComponent}
 	 */
-	// 부모로부터 ( currentUser, currentUser.profile ) 데이터를 받습니다.
 	export let user;
 	export let existingProfile = null;
+	// [ 1. 수정 ] 부모로부터 sportsList prop을 받습니다.
+	export let sportsList = [];
 
 	const dispatch = createEventDispatcher();
 
-	// 운동 종목 리스트 (컴포넌트 내부에서만 사용)
-	const sportsList = [
-		'헬스', '러닝', '수영', '필라테스', '요가',
-		'크로스핏', '클라이밍', '자전거', '등산',
-		'테니스', '골프', '기타'
+	// [ 2. 제거 ] 하드코딩된 sportsList 배열을 제거합니다.
+	/* const sportsList = [
+		'헬스', '러닝', '수영', ...
 	];
+	*/
 
-	// --- 폼 상태 변수 (이제 이 컴포넌트가 직접 관리) ---
+	// --- 폼 상태 변수 ---
 	let name = '';
 	let age = '';
 	let gender = '';
@@ -31,13 +31,38 @@
 	let selectedFiles = [];
 	let isUploading = false;
 	let uploadStatus = '';
+	let isGeneratingName = false;
 
-	// 컴포넌트 마운트 시, props로 받은 데이터로 폼을 채웁니다.
+	// 'generateRandomName' 함수 (API 호출)
+	async function generateRandomName() {
+		if (isGeneratingName) return;
+		isGeneratingName = true;
+		try {
+			const response = await fetch('https://musclecat.co.kr/generate', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					prompt: '강하고 귀여운 한글 닉네임을 6자 이내로 1개만 만들어줘. 닉네임만 주면 돼'
+				})
+			});
+			if (!response.ok) {
+				throw new Error(`API Error: ${response.status} ${response.statusText}`);
+			}
+			const generatedName = (await response.text()).replace(/"/g, '');
+			name = generatedName;
+		} catch (error) {
+			console.error('Error generating random name:', error);
+			alert('이름 생성에 실패했습니다. 직접 입력해주세요.');
+		} finally {
+			isGeneratingName = false;
+		}
+	}
+
 	onMount(() => {
-		name = user.name; // Google 이름
-
+		name = existingProfile ? existingProfile.name : user.name;
 		if (existingProfile) {
-			// 프로필 수정
 			age = existingProfile.age;
 			gender = existingProfile.gender;
 			mainSport = existingProfile.mainSport;
@@ -46,12 +71,11 @@
 			bio = existingProfile.bio || '';
 			existingPhotos = existingProfile.photos || [];
 		} else {
-			// 프로필 신규 생성
 			existingPhotos = user.avatar ? [user.avatar] : [];
 		}
 	});
 
-	// --- 파일 처리 로직 (페이지에서 그대로 가져옴) ---
+	// --- 파일 처리 로직 (동일) ---
 	function handleFileSelect(event) {
 		const newFiles = Array.from(event.target.files);
 		const newEntries = newFiles.map((file) => ({
@@ -78,13 +102,11 @@
 			reader.readAsDataURL(file);
 			reader.onload = (event) => {
 				const img = new Image();
-
 				img.src = event.target.result;
 				img.onload = async () => {
 					const maxDim = 600;
 					let width = img.width;
 					let height = img.height;
-
 					if (width > height) {
 						if (width > maxDim) {
 							height *= maxDim / width;
@@ -99,10 +121,8 @@
 					const canvas = document.createElement('canvas');
 					canvas.width = width;
 					canvas.height = height;
-
 					const ctx = canvas.getContext('2d');
 					ctx.drawImage(img, 0, 0, width, height);
-
 					canvas.toBlob(
 						async (blob) => {
 							if (blob) resolve({ blob, ext: 'avif' });
@@ -122,15 +142,16 @@
 		});
 	}
 
-	// --- 폼 제출 핸들러 (수정됨) ---
+	// --- 폼 제출 핸들러 (동일) ---
 	async function handleSubmit() {
 		if (
+			!name ||
 			!age ||
 			!gender ||
 			!mainSport ||
 			(existingPhotos.length === 0 && selectedFiles.length === 0)
 		) {
-			alert('나이, 성별, 주종목 및 1장 이상의 사진은 필수입니다.');
+			alert('이름, 나이, 성별, 주종목 및 1장 이상의 사진은 필수입니다.');
 			return;
 		}
 		isUploading = true;
@@ -164,18 +185,13 @@
 				updatedAt: new Date()
 			};
 
-			// 부모에게 최종 데이터 객체를 이벤트로 전달
 			dispatch('submitProfile', memberData);
-			
 		} catch (error) {
 			console.error('Error processing/uploading images: ', error);
 			alert('이미지 처리 중 오류가 발생했습니다: ' + error.message);
-			isUploading = false; // 오류 발생 시 업로딩 상태 해제
+			isUploading = false;
 			uploadStatus = '';
 		}
-		// (isUploading, uploadStatus는 부모가 submitProfile을 받고
-		//  성공/실패 여부를 알려주면 해제하는 것이 더 좋지만,
-		//  우선은 이미지 업로드 완료 시점으로 간소화합니다.)
 	}
 </script>
 
@@ -187,7 +203,21 @@
 		<form on:submit|preventDefault={handleSubmit} class="member-form">
 			<div class="form-group">
 				<label for="name">이름</label>
-				<input type="text" id="name" bind:value={name} required disabled />
+				<div class="input-with-button">
+					<input type="text" id="name" bind:value={name} required />
+					<button
+						type="button"
+						class="btn-random"
+						on:click={generateRandomName}
+						disabled={isGeneratingName}
+					>
+						{#if isGeneratingName}
+							⏳
+						{:else}
+							🎲
+						{/if}
+					</button>
+				</div>
 			</div>
 			<div class="form-group">
 				<label for="age">나이</label>
@@ -200,6 +230,7 @@
 					<label><input type="radio" bind:group={gender} value="여성" /> 여성</label>
 				</div>
 			</div>
+
 			<div class="form-group">
 				<label for="main-sport">주종목</label>
 				<select id="main-sport" bind:value={mainSport} required>
@@ -218,6 +249,7 @@
 					{/each}
 				</select>
 			</div>
+			
 			<div class="form-group">
 				<label for="location">위치</label>
 				<input type="text" id="location" bind:value={location} placeholder="예: 강남구 역삼동" />
@@ -266,20 +298,19 @@
 			</button>
 		</form>
 
-		<button class="close-modal-btn" on:click={() => dispatch('close')}>{existingProfile ? '닫기' : '나중에 하기'}</button>
+		<button class="close-modal-btn" on:click={() => dispatch('close')}
+			>{existingProfile ? '닫기' : '나중에 하기'}</button
+		>
 	</div>
 </div>
 
 <style>
-	/* +page.svelte의 모달 공통 스타일 및 폼 모달 스타일 */
 	.modal-overlay {
 		position: absolute;
 		top: 0;
 		left: 0;
 		right: 0;
 		bottom: 0;
-		/* 폼 모달은 반투명 오버레이가 없도록 */
-		/* background-color: rgba(0, 0, 0, 0.5); */
 		display: flex;
 		justify-content: center;
 		align-items: center;
@@ -323,8 +354,6 @@
 		padding: 8px;
 		text-decoration: underline;
 	}
-
-	/* 프로필 생성 폼 모달 스타일 */
 	.modal-content.form-modal {
 		max-height: 80dvh;
 		overflow-y: auto;
@@ -381,6 +410,33 @@
 	input[type='text']:disabled {
 		background-color: #f5f5f5;
 		color: #888;
+	}
+	.input-with-button {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.input-with-button input[type='text'] {
+		flex: 1;
+		min-width: 0;
+	}
+	.btn-random {
+		padding: 8px 12px;
+		background-color: #f0f0f0;
+		border: 1px solid #ddd;
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 16px;
+		line-height: 1.2;
+		transition: background-color 0.2s;
+	}
+	.btn-random:hover {
+		background-color: #e0e0e0;
+	}
+	.btn-random:disabled {
+		background-color: #f5f5f5;
+		color: #aaa;
+		cursor: not-allowed;
 	}
 	.hint {
 		font-size: 12px;

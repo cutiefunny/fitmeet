@@ -10,7 +10,7 @@
 		doc,
 		deleteDoc,
 		updateDoc,
-		Timestamp // [ 1. Timestamp 임포트 ]
+		Timestamp
 	} from 'firebase/firestore';
 	import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
@@ -44,7 +44,6 @@
 	let secondarySport = '';
 	let location = '';
 	let bio = '';
-	// [ 2. 'likeCount' 폼 변수 추가 ]
 	let likeCount = 0;
 	let existingPhotos = [];
 	let selectedFiles = [];
@@ -135,7 +134,7 @@
 		secondarySport = '';
 		location = '';
 		bio = '';
-		likeCount = 0; // [ 3. resetForm에 추가 ]
+		likeCount = 0;
 		existingPhotos = [];
 		selectedFiles.forEach((entry) => URL.revokeObjectURL(entry.url));
 		selectedFiles = [];
@@ -163,7 +162,7 @@
 		secondarySport = member.secondarySport || '';
 		location = member.location;
 		bio = member.bio;
-		likeCount = member.likeCount ?? 0; // [ 4. handleEdit에 추가 ]
+		likeCount = member.likeCount ?? 0;
 		existingPhotos = member.photos || [];
 	}
 
@@ -273,7 +272,7 @@
 				location: location,
 				bio: bio,
 				photos: finalPhotos,
-				likeCount: parseInt(likeCount), // [ 5. memberData에 추가 ]
+				likeCount: parseInt(likeCount),
 				updatedAt: new Date()
 			};
 
@@ -282,8 +281,11 @@
 				alert('회원 정보가 수정되었습니다!');
 			} else {
 				memberData.createdAt = new Date();
-				// [ 6. 신규 생성 시 'lastLikeRecharge'도 설정 ]
 				memberData.lastLikeRecharge = Timestamp.fromDate(new Date());
+				// 신규 생성 시 (중복 'LIKE' 카운트용)
+				memberData.likesSentCount = {};
+				memberData.likesReceivedCount = {};
+				memberData.matched = [];
 				await addDoc(collection(db, 'members'), memberData);
 				alert('새 회원이 등록되었습니다!');
 			}
@@ -302,7 +304,7 @@
 
 <div class="admin-container">
 	<div class="header-area">
-		<h1>관리자 - 회원 관리</h1>
+		<h1>👥 회원 관리</h1>
 		{#if !isFormMode}
 			<button class="toggle-btn primary" on:click={toggleMode}>+ 회원 등록</button>
 		{:else}
@@ -498,28 +500,16 @@
 </div>
 
 <style>
-	/* ... (기존 스타일은 동일) ... */
-
-	/* [ 9. 'LIKE' 카운터 스타일 추가 ] */
-	.member-likes {
-		margin: 4px 0 0 0;
-		font-size: 13px;
-		color: #555;
-	}
-	.member-likes span {
-		font-weight: bold;
-		color: #4ecdc4;
-		font-size: 14px;
-	}
-
-	/* (이하 기존 스타일) */
+	/* 이 스타일들은 이제 /admin/+layout.svelte의 
+        .admin-content 내부에서만 적용됩니다.
+    */
 	.admin-container {
-		max-width: 800px;
-		margin: 40px auto;
-		padding: 20px;
+		max-width: 900px;
+		margin: 0 auto;
 		background-color: #f9f9f9;
 		border-radius: 16px;
-		min-height: 500px;
+		min-height: 100%;
+		box-sizing: border-box;
 	}
 
 	.header-area {
@@ -527,10 +517,15 @@
 		justify-content: space-between;
 		align-items: center;
 		margin-bottom: 30px;
+		padding: 20px 25px;
+		border-bottom: 1px solid #eee;
+		background-color: #fff;
+		border-radius: 16px 16px 0 0;
 	}
 	h1 {
 		color: #333;
 		margin: 0;
+		font-size: 22px;
 	}
 	h2 {
 		margin-top: 0;
@@ -582,8 +577,7 @@
 	.form-container {
 		background: #fff;
 		padding: 25px;
-		border-radius: 12px;
-		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+		border-radius: 0 0 12px 12px;
 	}
 	.member-form {
 		display: flex;
@@ -711,23 +705,21 @@
 		font-size: 18px;
 	}
 
-	/* [추가] 필터 영역 스타일 */
 	.filter-area {
 		display: flex;
-		flex-wrap: wrap; /* 모바일에서 줄바꿈 */
+		flex-wrap: wrap;
 		gap: 16px;
-		margin-bottom: 10px; /* 목록과의 간격 */
-		padding: 16px;
+		margin-bottom: 10px;
+		padding: 16px 25px;
 		background-color: #fff;
-		border-radius: 12px;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+		border-radius: 0 0 12px 12px;
 	}
 	.filter-group {
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
-		flex: 1; /* 동일한 너비로 */
-		min-width: 120px; /* 최소 너비 */
+		flex: 1;
+		min-width: 120px;
 	}
 	.filter-group label {
 		font-size: 13px;
@@ -808,6 +800,16 @@
 		color: #888;
 		font-size: 14px;
 	}
+	.member-likes {
+		margin: 4px 0 0 0;
+		font-size: 13px;
+		color: #555;
+	}
+	.member-likes span {
+		font-weight: bold;
+		color: #4ecdc4;
+		font-size: 14px;
+	}
 	.member-actions {
 		display: flex;
 		gap: 8px;
@@ -836,7 +838,6 @@
 		background-color: #ffcccc;
 	}
 
-	/* [추가] 페이지네이션 스타일 */
 	.pagination-area {
 		display: flex;
 		justify-content: center;
