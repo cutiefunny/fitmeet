@@ -202,7 +202,7 @@
     function handleProfileClick() {
         if (currentUser) {
             if (!currentUser.profile && showCreateProfileModal) {
-                return; 
+                return;
             }
             showSettingsModal = true;
         } else {
@@ -216,16 +216,39 @@
         showCreateProfileModal = false;
     }
 
-    // --- Firestore 데이터 로딩 (기존) ---
+    // [ ***** 1. 'shuffleArray' 헬퍼 함수 추가 ***** ]
+    /**
+     * Fisher-Yates (aka Knuth) Shuffle
+     * 배열의 요소를 무작위로 섞습니다. (원본 배열 수정)
+     */
+    function shuffleArray(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+            // 0부터 i까지의 무작위 인덱스
+            const j = Math.floor(Math.random() * (i + 1));
+            // 요소를 스왑
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+    }
+
+    // --- Firestore 데이터 로딩 (수정) ---
     async function fetchRecommendations() {
         isLoading = true;
         try {
-            const q = query(collection(db, 'members'), orderBy('createdAt', 'desc'));
+            // [ ***** 2. 쿼리 수정 ***** ]
+            // 'orderBy'를 제거. 어차피 클라이언트에서 섞을 것입니다.
+            const q = query(collection(db, 'members'));
             const querySnapshot = await getDocs(q);
-            recommendations = querySnapshot.docs.map(doc => ({
+            
+            let allMembers = querySnapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             }));
+
+            // [ ***** 3. 셔플 적용 ***** ]
+            // 가져온 모든 회원 목록을 무작위로 섞습니다.
+            recommendations = shuffleArray(allMembers);
+
         } catch (error) {
             console.error("Error fetching recommendations:", error);
         } finally {
@@ -234,21 +257,22 @@
     }
 
     // --- Svelte 반응형 선언 ($:) ---
-    // 성별 필터링 로직 (기존)
+    // (이전과 동일: 로그인 상태에 따라 필터링)
     $: displayRecommendations = recommendations.filter(member => {
-        if (!currentUser || !currentUser.profile) {
+        if (currentUser && currentUser.profile) {
+            if (member.id === currentUser.uid) {
+                return false;
+            }
+            if (currentUser.profile.gender === '남성') {
+                return member.gender === '여성';
+            }
+            if (currentUser.profile.gender === '여성') {
+                return member.gender === '남성';
+            }
             return false;
+        } else {
+            return true;
         }
-        if (member.id === currentUser.uid) {
-            return false;
-        }
-        if (currentUser.profile.gender === '남성') {
-            return member.gender === '여성';
-        }
-        if (currentUser.profile.gender === '여성') {
-            return member.gender === '남성';
-        }
-        return false;
     });
 
     $: currentProfile = displayRecommendations[currentProfileIndex];
@@ -297,11 +321,13 @@
             reader.readAsDataURL(file);
             reader.onload = (event) => {
                 const img = new Image();
+                
                 img.src = event.target.result;
                 img.onload = async () => {
                     const maxDim = 600;
                     let width = img.width;
                     let height = img.height;
+        
                     if (width > height) {
                         if (width > maxDim) { height *= maxDim / width; width = maxDim; }
                     } else {
@@ -310,8 +336,10 @@
                     const canvas = document.createElement('canvas');
                     canvas.width = width;
                     canvas.height = height;
+ 
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
+
                     canvas.toBlob(async (blob) => {
                         if (blob) resolve({ blob, ext: 'avif' });
                         else canvas.toBlob(webpBlob => resolve({ blob: webpBlob, ext: 'webp' }), 'image/webp', 0.8);
@@ -356,12 +384,12 @@
                         <span class="age">{currentProfile.age}, {currentProfile.gender}</span>
                     </div>
                      {#if currentProfile.mainSport}
-                    <p class="sports">
-                        <span class="main-sport">{currentProfile.mainSport}</span>
-                        {#if currentProfile.secondarySport}
-                            <span class="secondary-sport">/ {currentProfile.secondarySport}</span>
-                        {/if}
-                    </p>
+                        <p class="sports">
+                            <span class="main-sport">{currentProfile.mainSport}</span>
+                            {#if currentProfile.secondarySport}
+                                <span class="secondary-sport">/ {currentProfile.secondarySport}</span>
+                            {/if}
+                        </p>
                     {/if}
                     <p class="location">📍 {currentProfile.location}</p>
                     <p class="bio">{currentProfile.bio}</p>
@@ -547,7 +575,7 @@
     .modal-content h2 { margin-top: 0; color: #333; }
     .modal-content p { color: #666; margin-bottom: 24px; line-height: 1.5; }
     .google-login-btn { width: 100%; padding: 12px; background-color: #fff; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; font-weight: 500; color: #555; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer; transition: background-color 0.2s; margin-bottom: 12px; }
-    .google-login-btn:hover { background-color: #f5f5f5; }
+    .google-login-btn:hover { background-color: #f5f5ff; }
     .close-modal-btn { background: none; border: none; color: #999; font-size: 14px; cursor: pointer; padding: 8px; text-decoration: underline; }
     .user-info { display: flex; flex-direction: column; align-items: center; margin-bottom: 24px; }
     .modal-avatar { width: 80px; height: 80px; border-radius: 50%; margin-bottom: 12px; object-fit: cover; border: 3px solid #eee; }
