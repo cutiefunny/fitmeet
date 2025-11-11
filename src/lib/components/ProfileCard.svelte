@@ -1,42 +1,75 @@
 <script>
-	import { createEventDispatcher } from 'svelte';
+	import { onMount, createEventDispatcher } from 'svelte';
+	import { register } from 'swiper/element/bundle';
 
 	/**
 	 * @type {import('svelte').SvelteComponent}
 	 */
 	export let profile;
-	export let photo;
 	export let isBlurred = false;
+	export let buttonsDisabled = false;
 
 	const dispatch = createEventDispatcher();
+
+	onMount(() => {
+		register();
+	});
+
+	function handleTap(event) {
+		event.stopPropagation();
+	}
+
+	let heartParticles = [];
+	let particleId = 0;
+
+	function handleLikeClick() {
+		if (buttonsDisabled) return;
+
+		const newParticles = [];
+		for (let i = 0; i < 5; i++) {
+			newParticles.push({
+				id: particleId++,
+				x: Math.random() * 60 - 30,
+				delay: Math.random() * 0.3
+			});
+		}
+		heartParticles = [...heartParticles, ...newParticles];
+
+		dispatch('like');
+	}
+
+	function removeParticle(id) {
+		heartParticles = heartParticles.filter((p) => p.id !== id);
+	}
 </script>
 
 <div class="profile-card">
 	<div class="photo-area">
-		<img
-			src={photo}
-			alt={profile.name + ' 사진'}
-			class="main-photo"
-			class:blurred={isBlurred}
-		/>
-		<div class="indicators">
-			{#each profile.photos as _, i}
-				<div class="indicator-bar {i === 0 ? 'active' : ''}"></div>
+		<swiper-container
+			class="profile-swiper"
+			pagination="true"
+			loop="false"
+			space-between="0"
+			disabled={isBlurred}
+		>
+			{#each profile.photos as photoUrl}
+				<swiper-slide>
+					<img
+						src={photoUrl}
+						alt={profile.name + ' 사진'}
+						class="main-photo"
+						class:blurred={isBlurred}
+					/>
+				</swiper-slide>
 			{/each}
-		</div>
-		<div class="tap-areas">
-			<button
-				class="tap-left"
-				on:click|stopPropagation={() => dispatch('prevPhoto')}
-				aria-label="이전 사진"
-			></button>
-			<button
-				class="tap-right"
-				on:click|stopPropagation={() => dispatch('nextPhoto')}
-				aria-label="다음 사진"
-			></button>
-		</div>
+
+			<div class="tap-areas">
+				<div class="tap-left" on:click|stopPropagation={handleTap}></div>
+				<div class="tap-right" on:click|stopPropagation={handleTap}></div>
+			</div>
+		</swiper-container>
 	</div>
+
 	<div class="info-area">
 		<div class="name-age">
 			<h2>{profile.name}</h2>
@@ -56,12 +89,108 @@
 </div>
 
 <div class="action-buttons">
-	<button class="btn-pass" on:click={() => dispatch('pass')}>PASS</button>
-	<button class="btn-like" on:click={() => dispatch('like')}>LIKE</button>
+	<button class="btn-pass" on:click={() => dispatch('pass')} disabled={buttonsDisabled}>PASS</button>
+
+	<button class="btn-like" on:click={handleLikeClick} disabled={buttonsDisabled}>
+		LIKE
+
+		{#if heartParticles.length > 0}
+			<div class="particles-container">
+				{#each heartParticles as particle (particle.id)}
+					<div
+						class="heart-particle"
+						style="--x: {particle.x}px; --delay: {particle.delay}s;"
+						on:animationend={() => removeParticle(particle.id)}
+					>
+						❤️
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</button>
 </div>
 
 <style>
-	/* +page.svelte에 있던 스타일 중 ProfileCard와 ActionButtons 관련 스타일을 모두 가져옴 */
+	/* ... (기존 스타일 대부분 동일) ... */
+
+	.btn-pass,
+	.btn-like {
+		width: 64px;
+		height: 64px;
+		border-radius: 50%;
+		border: none;
+		font-weight: bold;
+		font-size: 14px;
+		cursor: pointer;
+		transition: transform 0.1s ease;
+		box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+
+		position: relative;
+		z-index: 10; /* 버튼이 파티클 위에 보이도록 z-index 설정 */
+	}
+
+	.btn-like {
+		background-color: #fff;
+		color: #4ecdc4;
+		border: 2px solid #4ecdc4;
+	}
+
+	.btn-pass {
+		background-color: #fff;
+		color: #ff6b6b;
+		border: 2px solid #ff6b6b;
+	}
+
+	.btn-pass:active,
+	.btn-like:active {
+		transform: scale(0.95);
+	}
+
+	.btn-pass:disabled,
+	.btn-like:disabled {
+		background-color: #f0f0f0;
+		color: #ccc;
+		border-color: #f0f0f0;
+		cursor: not-allowed;
+		transform: none;
+	}
+
+	.particles-container {
+		position: absolute;
+		top: 100%;
+		left: 50%;
+		width: 1px;
+		height: 1px;
+		pointer-events: none;
+		z-index: 20;
+	}
+
+	.heart-particle {
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		/* [ 1. 수정 ] 폰트 크기 2배 */
+		font-size: 32px; /* 16px -> 32px */
+		opacity: 1;
+
+		animation: fountain-effect 0.8s ease-out;
+		animation-delay: var(--delay);
+		transform: translateX(var(--x));
+	}
+
+	@keyframes fountain-effect {
+		0% {
+			transform: translate(var(--x), 0) scale(1);
+			opacity: 1;
+		}
+		100% {
+			/* [ 2. 수정 ] 수직 이동 거리도 2배로 증가 */
+			transform: translate(var(--x), -240px) scale(0.5); /* -120px -> -240px */
+			opacity: 0;
+		}
+	}
+
+	/* (이하 기존 스타일은 동일) */
 	.profile-card {
 		flex: 1;
 		display: flex;
@@ -80,6 +209,16 @@
 		overflow: hidden;
 		width: 100%;
 	}
+	.profile-swiper {
+		width: 100%;
+		height: 100%;
+		--swiper-pagination-top: 8px;
+		--swiper-pagination-bottom: auto;
+		--swiper-pagination-color: #fff;
+		--swiper-pagination-bullet-inactive-color: rgba(0, 0, 0, 0.2);
+		--swiper-pagination-bullet-size: 4px;
+		--swiper-pagination-bullet-horizontal-gap: 2px;
+	}
 	.main-photo {
 		width: 100%;
 		height: 100%;
@@ -92,24 +231,6 @@
 		filter: blur(12px);
 		transform: scale(1.05);
 	}
-	.indicators {
-		position: absolute;
-		top: 8px;
-		left: 8px;
-		right: 8px;
-		display: flex;
-		gap: 4px;
-		z-index: 10;
-	}
-	.indicator-bar {
-		flex: 1;
-		height: 4px;
-		background-color: rgba(0, 0, 0, 0.2);
-		border-radius: 2px;
-	}
-	.indicator-bar.active {
-		background-color: #fff;
-	}
 	.tap-areas {
 		position: absolute;
 		top: 0;
@@ -117,6 +238,7 @@
 		right: 0;
 		bottom: 0;
 		display: flex;
+		z-index: 5;
 	}
 	.tap-left,
 	.tap-right {
@@ -172,31 +294,5 @@
 		justify-content: center;
 		gap: 20px;
 		margin-bottom: 10px;
-	}
-	.btn-pass,
-	.btn-like {
-		width: 64px;
-		height: 64px;
-		border-radius: 50%;
-		border: none;
-		font-weight: bold;
-		font-size: 14px;
-		cursor: pointer;
-		transition: transform 0.1s ease;
-		box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-	}
-	.btn-pass:active,
-	.btn-like:active {
-		transform: scale(0.95);
-	}
-	.btn-pass {
-		background-color: #fff;
-		color: #ff6b6b;
-		border: 2px solid #ff6b6b;
-	}
-	.btn-like {
-		background-color: #fff;
-		color: #4ecdc4;
-		border: 2px solid #4ecdc4;
 	}
 </style>
