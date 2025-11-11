@@ -5,7 +5,18 @@
 
 	import { onMount, onDestroy } from 'svelte';
 	import { db, auth } from '$lib/firebase';
-	import { collection, getDocs, query, doc, getDoc, setDoc } from 'firebase/firestore';
+	import {
+		collection,
+		getDocs,
+		query,
+		doc,
+		getDoc,
+		setDoc,
+		Timestamp,
+		updateDoc,
+		arrayUnion,
+		increment // [ 1. 'increment' 임포트 ]
+	} from 'firebase/firestore';
 	import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 
 	// 컴포넌트 임포트
@@ -13,29 +24,27 @@
 	import LoginModal from '$lib/components/LoginModal.svelte';
 	import SettingsModal from '$lib/components/SettingsModal.svelte';
 	import ProfileFormModal from '$lib/components/ProfileFormModal.svelte';
-	// [ 1. 새 알림 모달 임포트 ]
 	import AlertModal from '$lib/components/AlertModal.svelte';
+	import MatchModal from '$lib/components/MatchModal.svelte';
 
-	// --- 로그인 사용자 정보 ---
+	// ... (변수 선언은 동일) ...
 	let currentUser = null;
 	let defaultAvatar = 'https://placehold.co/100x100/indigo/white?text=ME';
-
-	// --- 상태 관리 변수 ---
 	let recommendations = [];
 	let isLoading = true;
 	let currentProfileIndex = 0;
-
-	// --- 모달 상태 변수 ---
+	let profileCardInstance;
 	let showLoginModal = false;
 	let showSettingsModal = false;
 	let showCreateProfileModal = false;
-
-	// [ 2. 커스텀 알림 모달 상태 변수 추가 ]
 	let showCustomAlert = false;
 	let customAlertMessage = '';
-
-	// --- 자동 스와이프 타이머 변수 ---
+	let showMatchModal = false;
+	let matchedProfile = null;
 	let autoSwipeTimer = null;
+
+	// (onMount, onDestroy, handleSubmitProfile, handleEditProfile, 로그인/로그아웃, 모달 핸들러, 데이터 로딩 로직은 모두 동일)
+	// ... (이하 동일한 함수들 생략) ...
 
 	// --- Firebase 인증 상태 감지 ---
 	let unsubscribeAuth;
@@ -57,12 +66,32 @@
 					showCreateProfileModal = true;
 				} else {
 					currentUser.profile = userProfileSnap.data();
+					// 'LIKE' 충전 로직 (동일)
+					const profile = currentUser.profile;
+					const today = new Date();
+					const lastRechargeDate = profile.lastLikeRecharge
+						? profile.lastLikeRecharge.toDate()
+						: null;
+					if (!lastRechargeDate || !isSameDay(today, lastRechargeDate)) {
+						const currentLikes = profile.likeCount ?? 0;
+						if (currentLikes < 3) {
+							try {
+								await updateDoc(userProfileRef, {
+									likeCount: 3,
+									lastLikeRecharge: Timestamp.fromDate(today)
+								});
+								currentUser.profile.likeCount = 3;
+								currentUser.profile.lastLikeRecharge = Timestamp.fromDate(today);
+							} catch (err) {
+								console.error('Like recharge error: ', err);
+							}
+						}
+					}
 				}
 			} else {
 				currentUser = null;
 			}
 		});
-
 		await fetchRecommendations();
 	});
 
@@ -77,11 +106,17 @@
 		try {
 			if (!currentUser.profile) {
 				memberData.createdAt = new Date();
+				memberData.likeCount = 3;
+				memberData.lastLikeRecharge = new Date();
+				// [ 2. 수정 ] 신규 생성 시 빈 맵으로 초기화
+				memberData.likesSentCount = {};
+				memberData.likesReceivedCount = {};
+				memberData.matched = [];
 			}
 			await setDoc(doc(db, 'members', currentUser.uid), memberData, { merge: true });
 
 			if (currentUser.profile) {
-				alert('프로필이 수정되었습니다!'); // (참고: 이 alert도 나중에 바꿀 수 있습니다)
+				alert('프로필이 수정되었습니다!');
 			} else {
 				alert('프로필 생성이 완료되었습니다! FitMeet에 오신 것을 환영합니다.');
 			}
@@ -89,7 +124,6 @@
 			showCreateProfileModal = false;
 		} catch (error) {
 			console.error('Error saving profile: ', error);
-			// [ 3. 기본 alert을 커스텀 모달로 교체 ]
 			customAlertMessage = '프로필 저장 중 오류가 발생했습니다: \n' + error.message;
 			showCustomAlert = true;
 		}
@@ -144,6 +178,11 @@
 		showCreateProfileModal = false;
 	}
 
+	function handleMatchModalClose() {
+		showMatchModal = false;
+		nextProfile();
+	}
+
 	// --- 데이터 로딩 및 셔플 ---
 	function shuffleArray(array) {
 		for (let i = array.length - 1; i > 0; i--) {
@@ -151,6 +190,15 @@
 			[array[i], array[j]] = [array[j], array[i]];
 		}
 		return array;
+	}
+
+	function isSameDay(date1, date2) {
+		if (!date1 || !date2) return false;
+		return (
+			date1.getFullYear() === date2.getFullYear() &&
+			date1.getMonth() === date2.getMonth() &&
+			date1.getDate() === date2.getDate()
+		);
 	}
 
 	async function fetchRecommendations() {
@@ -176,6 +224,11 @@
 			if (member.id === currentUser.uid) {
 				return false;
 			}
+			// [ 3. 수정 ] 'likesSent' 배열 확인 로직 제거 (중복 'LIKE' 허용)
+			/* if (currentUser.profile.likesSent && currentUser.profile.likesSent.includes(member.id)) {
+				return false;
+			} 
+			*/
 			if (currentUser.profile.gender === '남성') {
 				return member.gender === '여성';
 			}
@@ -191,13 +244,10 @@
 	$: currentProfile = displayRecommendations[currentProfileIndex];
 
 	// --- 자동/수동 스와이프 로직 ---
-	
-	// [ 4. nextProfile 함수 수정: 기본 alert()을 커스텀 모달로 교체 ]
 	function nextProfile() {
 		if (currentProfileIndex < displayRecommendations.length - 1) {
 			currentProfileIndex++;
 		} else {
-			// 마지막 상대였을 경우
 			customAlertMessage = '오늘의 추천이 끝났습니다!\n내일 다시 확인해주세요.';
 			showCustomAlert = true;
 		}
@@ -222,7 +272,6 @@
 		}
 	}
 
-	// currentUser 상태에 따라 타이머 관리
 	$: {
 		if (!currentUser && displayRecommendations.length > 0 && !isLoading) {
 			startAutoSwipe();
@@ -232,18 +281,81 @@
 	}
 
 	// --- 이벤트 핸들러 ---
-	
 	function handlePass() {
-		// PASS는 애니메이션이 없으므로 즉시 다음 프로필로
 		nextProfile();
 	}
 
-	// [ 5. handleLike 함수 수정: 애니메이션 타이밍 로직 추가 ]
-	function handleLike() {
-		// ProfileCard.svelte의 하트 애니메이션(800ms)이
-		// 끝날 시간을 기다린 후, nextProfile 로직을 실행합니다.
-		setTimeout(() => {
-			nextProfile();
+	// [ 4. 'handleLike' 로직 수정 (핵심) ]
+	async function handleLike() {
+		const currentLikes = currentUser.profile.likeCount ?? 0;
+		if (currentLikes <= 0) {
+			customAlertMessage = '오늘 사용할 수 있는\n\'LIKE\'를 모두 사용했습니다.';
+			showCustomAlert = true;
+			return;
+		}
+
+		if (profileCardInstance) {
+			profileCardInstance.triggerHeartAnimation();
+		}
+
+		setTimeout(async () => {
+			try {
+				const newLikeCount = currentLikes - 1;
+				const myUid = currentUser.uid;
+				const targetUid = currentProfile.id;
+				const targetProfileData = currentProfile;
+
+				const myProfileRef = doc(db, 'members', myUid);
+				const targetProfileRef = doc(db, 'members', targetUid);
+
+				// 1. 'LIKE' 저장 (1단계 업데이트)
+				// Firestore의 increment를 사용하여 맵의 값을 1 증가시킵니다.
+				// 키에 .이 포함되므로 `[`...`]` 구문을 사용합니다.
+				const myUpdatePromise = updateDoc(myProfileRef, {
+					likeCount: newLikeCount,
+					[`likesSentCount.${targetUid}`]: increment(1) // 맵 업데이트
+				});
+
+				const targetUpdatePromise = updateDoc(targetProfileRef, {
+					[`likesReceivedCount.${myUid}`]: increment(1) // 맵 업데이트
+				});
+
+				await Promise.all([myUpdatePromise, targetUpdatePromise]);
+
+				// 2. 로컬 상태 업데이트
+				currentUser.profile.likeCount = newLikeCount;
+				// (likesSentCount도 로컬에 반영 - 옵션)
+				if (!currentUser.profile.likesSentCount) currentUser.profile.likesSentCount = {};
+				currentUser.profile.likesSentCount[targetUid] = (currentUser.profile.likesSentCount[targetUid] || 0) + 1;
+
+
+				// 3. 매치 확인 (상대방의 likesSentCount 맵에 내 UID가 있는지 확인)
+				if (targetProfileData.likesSentCount && targetProfileData.likesSentCount[myUid] > 0) {
+					// 🚨 IT'S A MATCH! 🚨
+
+					// 4. 'matched' 필드 업데이트 (2단계 업데이트)
+					const myMatchUpdate = updateDoc(myProfileRef, {
+						matched: arrayUnion(targetUid)
+					});
+					const targetMatchUpdate = updateDoc(targetProfileRef, {
+						matched: arrayUnion(myUid)
+					});
+					await Promise.all([myMatchUpdate, targetMatchUpdate]);
+
+					if (!currentUser.profile.matched) currentUser.profile.matched = [];
+					currentUser.profile.matched.push(targetUid);
+
+					matchedProfile = targetProfileData;
+					showMatchModal = true;
+				} else {
+					// 매치가 아니면 다음 프로필로
+					nextProfile();
+				}
+			} catch (err) {
+				console.error('Error processing like: ', err);
+				customAlertMessage = 'LIKE 처리 중 오류가 발생했습니다.';
+				showCustomAlert = true;
+			}
 		}, 800);
 	}
 </script>
@@ -251,13 +363,20 @@
 <div class="app-container">
 	<header class="app-header">
 		<h1 class="logo">fitmeet</h1>
-		<button class="user-profile-btn" aria-label="내 프로필" on:click={handleProfileClick}>
-			<img
-				src={currentUser ? currentUser.avatar : defaultAvatar}
-				alt="내 프로필 사진"
-				class="user-avatar"
-			/>
-		</button>
+		<div class="user-actions">
+			{#if currentUser && currentUser.profile}
+				<div class="header-like-counter">
+					❤️ <span>{currentUser.profile.likeCount ?? 0}</span>
+				</div>
+			{/if}
+			<button class="user-profile-btn" aria-label="내 프로필" on:click={handleProfileClick}>
+				<img
+					src={currentUser ? currentUser.avatar : defaultAvatar}
+					alt="내 프로필 사진"
+					class="user-avatar"
+				/>
+			</button>
+		</div>
 	</header>
 
 	<main class="main-content">
@@ -265,6 +384,7 @@
 			<div class="empty-state"><p>추천 상대를 불러오는 중입니다...</p></div>
 		{:else if currentProfile}
 			<ProfileCard
+				bind:this={profileCardInstance}
 				profile={currentProfile}
 				isBlurred={!currentUser}
 				buttonsDisabled={!currentUser}
@@ -285,7 +405,6 @@
 	{#if showLoginModal}
 		<LoginModal on:googleLogin={handleGoogleLogin} on:close={closeModals} />
 	{/if}
-
 	{#if showSettingsModal && currentUser}
 		<SettingsModal
 			user={currentUser}
@@ -294,7 +413,6 @@
 			on:close={closeModals}
 		/>
 	{/if}
-
 	{#if showCreateProfileModal && currentUser}
 		<ProfileFormModal
 			user={currentUser}
@@ -303,11 +421,14 @@
 			on:close={closeModals}
 		/>
 	{/if}
-
 	{#if showCustomAlert}
-		<AlertModal
-			message={customAlertMessage}
-			on:close={() => (showCustomAlert = false)}
+		<AlertModal message={customAlertMessage} on:close={() => (showCustomAlert = false)} />
+	{/if}
+	{#if showMatchModal && matchedProfile}
+		<MatchModal
+			currentUser={currentUser}
+			matchedUser={matchedProfile}
+			on:close={handleMatchModalClose}
 		/>
 	{/if}
 </div>
@@ -350,6 +471,24 @@
 		color: #ff6b6b;
 		margin: 0;
 		letter-spacing: -0.5px;
+	}
+	.user-actions {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+	.header-like-counter {
+		font-size: 18px;
+		color: #333;
+		font-weight: 500;
+		display: flex;
+		align-items: center;
+	}
+	.header-like-counter span {
+		font-weight: bold;
+		font-size: 20px;
+		color: #ff6b6b;
+		margin-left: 4px;
 	}
 	.user-profile-btn {
 		background: none;

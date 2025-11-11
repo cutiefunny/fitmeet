@@ -4,7 +4,7 @@
 	/**
 	 * @type {import('svelte').SvelteComponent}
 	 */
-	export let user; // currentUser 객체를 받음
+	export let user;
 
 	const dispatch = createEventDispatcher();
 </script>
@@ -17,9 +17,22 @@
 			<div class="user-details">
 				<h3>{user.name}</h3>
 				<p>{user.email}</p>
+				{#if user.profile}
+					<p class="like-info">
+						남은 LIKE: <span>{user.profile.likeCount ?? 0}</span>개
+					</p>
+				{/if}
 			</div>
 		</div>
 		<div class="modal-actions">
+			<a
+				href="/likes"
+				class="btn-likes"
+				sveltekit:prefetch
+				on:click={() => dispatch('close')}
+			>
+				❤️ 받은 LIKE 확인
+			</a>
 			<button class="edit-profile-btn" on:click={() => dispatch('editProfile')}>프로필 수정</button>
 			<button class="logout-btn" on:click={() => dispatch('logout')}>로그아웃</button>
 		</div>
@@ -28,7 +41,36 @@
 </div>
 
 <style>
-	/* +page.svelte의 모달 공통 스타일 및 설정 모달 스타일 */
+	/* ... (기존 스타일 동일) ... */
+	.modal-actions {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		width: 100%;
+		margin-bottom: 10px;
+	}
+
+	/* [ 2. 링크 버튼 스타일 추가 ] */
+	.btn-likes {
+		display: block;
+		width: 100%;
+		padding: 12px;
+		background-color: #fce4ec; /* Light pink */
+		color: #d81b60; /* Dark pink */
+		border: none;
+		border-radius: 8px;
+		font-size: 16px;
+		font-weight: bold;
+		cursor: pointer;
+		transition: background-color 0.2s;
+		text-decoration: none;
+		box-sizing: border-box; /* padding이 width 100%를 넘지 않도록 */
+	}
+	.btn-likes:hover {
+		background-color: #f8bbd0;
+	}
+
+	/* (이하 기존 스타일 동일) */
 	.modal-overlay {
 		position: absolute;
 		top: 0;
@@ -97,12 +139,15 @@
 		color: #888;
 		font-size: 14px;
 	}
-	.modal-actions {
-		display: flex;
-		flex-direction: column;
-		gap: 10px;
-		width: 100%;
-		margin-bottom: 10px;
+	.like-info {
+		font-size: 14px;
+		color: #555;
+		margin-top: 8px;
+	}
+	.like-info span {
+		font-weight: bold;
+		color: #4ecdc4;
+		font-size: 16px;
 	}
 	.edit-profile-btn {
 		width: 100%;

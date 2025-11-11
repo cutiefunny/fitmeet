@@ -19,12 +19,20 @@
 		event.stopPropagation();
 	}
 
+	// --- 하트 파티클 상태 관리 ---
 	let heartParticles = [];
 	let particleId = 0;
 
+	// [ 1. 수정 ]
+	// 'LIKE' 버튼 클릭 시, 이제 이벤트만 발송합니다.
 	function handleLikeClick() {
 		if (buttonsDisabled) return;
+		dispatch('like');
+	}
 
+	// [ 2. 신규 ]
+	// 부모 컴포넌트(page)가 호출할 수 있도록 애니메이션 함수를 export합니다.
+	export function triggerHeartAnimation() {
 		const newParticles = [];
 		for (let i = 0; i < 5; i++) {
 			newParticles.push({
@@ -34,10 +42,9 @@
 			});
 		}
 		heartParticles = [...heartParticles, ...newParticles];
-
-		dispatch('like');
 	}
 
+	// 애니메이션이 끝난 파티클 제거
 	function removeParticle(id) {
 		heartParticles = heartParticles.filter((p) => p.id !== id);
 	}
@@ -73,7 +80,7 @@
 	<div class="info-area">
 		<div class="name-age">
 			<h2>{profile.name}</h2>
-			<span class="age">{profile.age}, {profile.gender}</span>
+			<span class="age">{formatAge(profile.age)}, {profile.gender}</span>
 		</div>
 		{#if profile.mainSport}
 			<p class="sports">
@@ -93,7 +100,6 @@
 
 	<button class="btn-like" on:click={handleLikeClick} disabled={buttonsDisabled}>
 		LIKE
-
 		{#if heartParticles.length > 0}
 			<div class="particles-container">
 				{#each heartParticles as particle (particle.id)}
@@ -110,9 +116,24 @@
 	</button>
 </div>
 
-<style>
-	/* ... (기존 스타일 대부분 동일) ... */
+<script context="module">
+	function formatAge(age) {
+		if (!age || typeof age !== 'number' || age < 10) {
+			return '정보 없음';
+		}
+		const decade = Math.floor(age / 10) * 10;
+		const remainder = age % 10;
+		let rangeStr = '';
+		if (remainder <= 3) rangeStr = '초반';
+		else if (remainder <= 6) rangeStr = '중반';
+		else rangeStr = '후반';
+		if (decade < 20 || decade >= 50) return `${decade}대`;
+		return `${decade}대 ${rangeStr}`;
+	}
+</script>
 
+<style>
+	/* ... (모든 스타일은 이전과 동일) ... */
 	.btn-pass,
 	.btn-like {
 		width: 64px;
@@ -124,28 +145,23 @@
 		cursor: pointer;
 		transition: transform 0.1s ease;
 		box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-
 		position: relative;
-		z-index: 10; /* 버튼이 파티클 위에 보이도록 z-index 설정 */
+		z-index: 10;
 	}
-
 	.btn-like {
 		background-color: #fff;
 		color: #4ecdc4;
 		border: 2px solid #4ecdc4;
 	}
-
 	.btn-pass {
 		background-color: #fff;
 		color: #ff6b6b;
 		border: 2px solid #ff6b6b;
 	}
-
 	.btn-pass:active,
 	.btn-like:active {
 		transform: scale(0.95);
 	}
-
 	.btn-pass:disabled,
 	.btn-like:disabled {
 		background-color: #f0f0f0;
@@ -154,7 +170,6 @@
 		cursor: not-allowed;
 		transform: none;
 	}
-
 	.particles-container {
 		position: absolute;
 		top: 100%;
@@ -164,33 +179,26 @@
 		pointer-events: none;
 		z-index: 20;
 	}
-
 	.heart-particle {
 		position: absolute;
 		bottom: 0;
 		left: 0;
-		/* [ 1. 수정 ] 폰트 크기 2배 */
-		font-size: 32px; /* 16px -> 32px */
+		font-size: 32px;
 		opacity: 1;
-
 		animation: fountain-effect 0.8s ease-out;
 		animation-delay: var(--delay);
 		transform: translateX(var(--x));
 	}
-
 	@keyframes fountain-effect {
 		0% {
 			transform: translate(var(--x), 0) scale(1);
 			opacity: 1;
 		}
 		100% {
-			/* [ 2. 수정 ] 수직 이동 거리도 2배로 증가 */
-			transform: translate(var(--x), -240px) scale(0.5); /* -120px -> -240px */
+			transform: translate(var(--x), -240px) scale(0.5);
 			opacity: 0;
 		}
 	}
-
-	/* (이하 기존 스타일은 동일) */
 	.profile-card {
 		flex: 1;
 		display: flex;
