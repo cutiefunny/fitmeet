@@ -1,3 +1,4 @@
+[cutiefunny/fitmeet/fitmeet-fba7ac078c9c20e302896d787e80301a51ec0c6c/src/lib/components/SettingsModal.svelte]
 <script>
 	import { createEventDispatcher } from 'svelte';
 
@@ -32,6 +33,14 @@
 				on:click={() => dispatch('close')}
 			>
 				❤️ 받은 LIKE 확인
+			</a>
+			<a
+				href="/matches"
+				class="btn-matches"
+				sveltekit:prefetch
+				on:click={() => dispatch('close')}
+			>
+				🤝 매칭 목록 확인
 			</a>
 			<button class="edit-profile-btn" on:click={() => dispatch('editProfile')}>프로필 수정</button>
 			<button class="logout-btn" on:click={() => dispatch('logout')}>로그아웃</button>
@@ -68,6 +77,26 @@
 	}
 	.btn-likes:hover {
 		background-color: #f8bbd0;
+	}
+
+	/* [ 3. 신규 ] 매칭 목록 버튼 스타일 추가 */
+	.btn-matches {
+		display: block;
+		width: 100%;
+		padding: 12px;
+		background-color: #e6f7ff; /* Light blue */
+		color: #096dd9; /* Dark blue */
+		border: none;
+		border-radius: 8px;
+		font-size: 16px;
+		font-weight: bold;
+		cursor: pointer;
+		transition: background-color 0.2s;
+		text-decoration: none;
+		box-sizing: border-box;
+	}
+	.btn-matches:hover {
+		background-color: #bae7ff;
 	}
 
 	/* (이하 기존 스타일 동일) */

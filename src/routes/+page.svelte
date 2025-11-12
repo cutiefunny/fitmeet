@@ -134,7 +134,6 @@
 				memberData.likesSentCount = {};
 				memberData.likesReceivedCount = {};
 				memberData.matched = [];
-
 				await setDoc(doc(db, 'members', currentUser.uid), memberData, { merge: true });
 				await updateDoc(statsDocRef, {
 					totalMembers: increment(1)
@@ -170,7 +169,6 @@
 			// [ 3. 수정 ] 로그인 성공 시 'loginHistory'에 기록
 			const result = await signInWithPopup(auth, provider);
 			const user = result.user;
-
 			// 백그라운드에서 로그인 기록 (실패해도 UI에 영향 없음)
 			try {
 				await addDoc(collection(db, 'loginHistory'), {
@@ -275,11 +273,20 @@
 	}
 
 	// --- Svelte 반응형 선언 ($:) ---
+	// [ 1. 수정 ]
 	$: displayRecommendations = recommendations.filter((member) => {
 		if (currentUser && currentUser.profile) {
+			// A. 본인 제외
 			if (member.id === currentUser.uid) {
 				return false;
 			}
+			
+			// B. [추가] 이미 매칭된 상대 제외
+			if (currentUser.profile.matched && currentUser.profile.matched.includes(member.id)) {
+				return false;
+			}
+
+			// C. 성별 필터링
 			if (currentUser.profile.gender === '남성') {
 				return member.gender === '여성';
 			}
@@ -288,6 +295,7 @@
 			}
 			return false;
 		} else {
+			// 로그인 안 한 상태에서는 모두 표시
 			return true;
 		}
 	});
@@ -391,7 +399,6 @@
 					const targetMatchUpdate = updateDoc(targetProfileRef, {
 						matched: arrayUnion(myUid)
 					});
-
 					// 'totalMatches' 1 증가
 					const matchStatsUpdate = updateDoc(statsDocRef, {
 						totalMatches: increment(1)
@@ -401,7 +408,6 @@
 
 					if (!currentUser.profile.matched) currentUser.profile.matched = [];
 					currentUser.profile.matched.push(targetUid);
-
 					matchedProfile = targetProfileData;
 					showMatchModal = true;
 				} else {

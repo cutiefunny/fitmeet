@@ -1,3 +1,4 @@
+[cutiefunny/fitmeet/fitmeet-fba7ac078c9c20e302896d787e80301a51ec0c6c/src/routes/likes/+page.svelte]
 <script>
 	import { onMount } from 'svelte';
 	import { db, auth } from '$lib/firebase';
@@ -37,7 +38,7 @@
 	async function fetchLikesDetails(myUid) {
 		isLoading = true;
 		try {
-			// 1. 내 프로필 문서를 가져와서 'likesReceivedCount' 맵을 확보
+			// 1. 내 프로필 문서를 가져와서 'likesReceivedCount' 맵과 'matched' 배열을 확보
 			const myProfileRef = doc(db, 'members', myUid);
 			const myProfileSnap = await getDoc(myProfileRef);
 
@@ -48,7 +49,9 @@
 			}
 
 			const myProfile = myProfileSnap.data();
-			const likesCountMap = myProfile.likesReceivedCount; // 예: { uid1: 5, uid2: 1 }
+			const likesCountMap = myProfile.likesReceivedCount;
+			const matchedUids = myProfile.matched || []; // [ 1. 수정 ] 매치된 UID 목록 가져오기
+			// 예: { uid1: 5, uid2: 1 }
 
 			// 'LIKE'를 보낸 사람이 아무도 없으면 빈 배열로 종료
 			if (!likesCountMap || Object.keys(likesCountMap).length === 0) {
@@ -59,11 +62,22 @@
 
 			// 'LIKE'를 보낸 사람들의 UID 목록
 			const likerUids = Object.keys(likesCountMap);
+			
+			// [ 2. 수정 ] 'LIKE' 보낸 사람 중, 이미 매치된 사람은 제외
+			const likerUidsToShow = likerUids.filter(uid => !matchedUids.includes(uid));
+
+			// 'LIKE'를 보낸 사람이 아무도 없으면 (or 모두 매치되었으면) 빈 배열로 종료
+			if (likerUidsToShow.length === 0) {
+				likesReceivedList = [];
+				isLoading = false;
+				return;
+			}
 
 			// 2. 'in' 쿼리를 사용해 'LIKE'를 보낸 사람들의 프로필을 한 번에 가져오기
 			// (참고: Firestore 'in' 쿼리는 최대 30개 ID까지 지원합니다.
 			//  더 많아지면 쿼리를 분할해야 하지만, 현재 단계에서는 30개로 가정합니다.)
-			const likersQuery = query(collection(db, 'members'), where(documentId(), 'in', likerUids));
+			// [ 3. 수정 ] 'in' 쿼리에 likerUidsToShow 사용
+			const likersQuery = query(collection(db, 'members'), where(documentId(), 'in', likerUidsToShow));
 			const likersSnapshot = await getDocs(likersQuery);
 
 			// (조회를 쉽게 하기 위해 UID를 키로 하는 맵을 임시로 생성)
@@ -73,7 +87,8 @@
 			});
 
 			// 3. '횟수' 정보와 '프로필' 정보를 결합하여 최종 목록 생성
-			likesReceivedList = likerUids
+			// [ 4. 수정 ] likerUidsToShow 기준으로 최종 목록 생성
+			likesReceivedList = likerUidsToShow
 				.map((uid) => {
 					const profile = tempLikerProfiles[uid];
 					return {
@@ -101,7 +116,7 @@
 		<a href="/" class="back-link" sveltekit:prefetch>←</a>
 		<h1 class="logo">받은 LIKE</h1>
 		<div class="placeholder" />
-		</header>
+	</header>
 
 	<main class="main-content">
 		{#if isLoading}
