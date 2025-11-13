@@ -1,7 +1,7 @@
 <script>
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
-	import { auth, db, messaging } from '$lib/firebase'; // messaging (이제 null일 수 있음)
+	import { auth, db, messaging } from '$lib/firebase';
 	import { onAuthStateChanged } from 'firebase/auth';
 	import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
 	import { getToken, onMessage } from 'firebase/messaging';
@@ -18,20 +18,15 @@
 	);
 
 	onMount(() => {
-		// [ 1. 수정 ] 'messaging'이 브라우저에서 성공적으로 초기화되었는지 확인
 		if (messaging && vapidKey) {
-			
-			// 인증 상태가 변경될 때마다 토큰 등록 시도
 			const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
 				if (user) {
-					// (브라우저 자체의 알림 지원 여부도 확인)
 					if ('Notification' in window) {
 						setupPushNotifications(user.uid);
 					}
 				}
 			});
 
-			// 포그라운드 메시지 수신
 			onMessage(messaging, (payload) => {
 				console.log('[Push] Message received in foreground: ', payload);
 			});
@@ -39,14 +34,13 @@
 			return () => {
 				unsubscribeAuth();
 			};
-
 		} else if (!vapidKey) {
 			console.warn('VITE_FIREBASE_VAPID_KEY가 .env 파일에 설정되지 않았습니다. 푸시 알림이 비활성화됩니다.');
 		}
 	});
 
+	// [ 1. 'setupPushNotifications' 함수 수정 ]
 	async function setupPushNotifications(uid) {
-		// [ 2. 수정 ] 함수 내부에서도 'messaging' 존재 여부 확인
 		if (!messaging) return;
 
 		try {
@@ -56,8 +50,14 @@
 				return;
 			}
 
+			// (신규) SvelteKit이 등록한 서비스 워커('src/service-worker.js')를 가져옵니다.
+			const swRegistration = await navigator.serviceWorker.ready;
+
+			// (수정) getToken에 serviceWorkerRegistration을 전달합니다.
+			// 이렇게 하면 FCM은 /firebase-messaging-sw.js를 찾지 않습니다.
 			const currentToken = await getToken(messaging, {
-				vapidKey: vapidKey
+				vapidKey: vapidKey,
+				serviceWorkerRegistration: swRegistration
 			});
 
 			if (currentToken) {

@@ -1,68 +1,119 @@
 /// <reference types="@sveltejs/kit" />
 import { build, files, version } from '$service-worker';
 
-// 캐시 이름 생성 (버전이 바뀌면 새로운 캐시 생성)
-const CACHE = `cache-${version}`;
+// [ 1. 신규 ] Firebase SDK 임포트 (CDN)
+import { initializeApp } from 'firebase/app';
+import { getMessaging, onBackgroundMessage } from 'firebase/messaging/sw';
 
-// 캐시할 자산 목록 (빌드된 파일 + static 폴더의 파일)
+// --- [ 2. 신규 ] Firebase 구성 ---
+// ⚠️ 중요: 이 객체에 .env 파일의 VITE_FIREBASE_... 값들을
+//    '직접 복사/붙여넣기' 해야 합니다.
+//    (서비스 워커는 import.meta.env에 접근할 수 없습니다.)
+const firebaseConfig = {
+	apiKey: 'AIzaSyBpLnOT0iH_uKS_8fb4zdxpmXmasPZDM4M',
+	authDomain: 'fitmeet-b8336.firebaseapp.com',
+	projectId: 'fitmeet-b8336',
+	storageBucket: 'fitmeet-b8336.firebasestorage.app',
+	messagingSenderId: '435670829305',
+	appId: '1:435670829305:web:5784771de9465739dc7a28'
+};
+
+// [ 3. 신규 ] Firebase 앱 및 메시징 초기화
+const app = initializeApp(firebaseConfig);
+const messaging = getMessaging(app);
+
+// [ 4. 신규 ] 백그라운드 메시지 핸들러
+// (앱이 백그라운드/종료 상태일 때 푸시를 받으면 실행됨)
+onBackgroundMessage(messaging, (payload) => {
+	console.log('[SW] Received background message ', payload);
+
+	// 알림 제목/내용 구성
+	const notificationTitle = payload.notification.title || '새 메시지';
+	const notificationOptions = {
+		body: payload.notification.body || '메시지를 확인하세요.',
+		icon: '/icon-192.png', // 알림 아이콘
+		// (웹 푸시 클릭 시 이동할 URL - Cloud Function에서 설정한 값 사용)
+		data: {
+			url: payload.fcmOptions.link || '/'
+		}
+	};
+
+	// 알림 표시
+	self.registration.showNotification(notificationTitle, notificationOptions);
+});
+
+// [ 5. 신규 ] 알림 클릭 이벤트 핸들러
+self.addEventListener('notificationclick', (event) => {
+	event.notification.close(); // 알림 닫기
+
+	const urlToOpen = event.notification.data.url || '/';
+
+	// 클릭 시 해당 URL의 창을 열거나 포커스
+	event.waitUntil(
+		clients.matchAll({ type: 'window' }).then((clientList) => {
+			for (const client of clientList) {
+				if (client.url === urlToOpen && 'focus' in client) {
+					return client.focus();
+				}
+			}
+			if (clients.openWindow) {
+				return clients.openWindow(urlToOpen);
+			}
+		})
+	);
+});
+
+// --- (기존 SvelteKit PWA 로직) ---
+
+const CACHE = `cache-${version}`;
 const ASSETS = [
 	...build, // SvelteKit이 빌드한 JS/CSS 파일들
-	...files  // static 폴더에 있는 파일들
+	...files // static 폴더에 있는 파일들
 ];
 
-// 1. 설치 (install): 필요한 파일들을 미리 캐싱합니다.
+// 1. 설치 (install): 필요한 파일들을 미리 캐싱
 self.addEventListener('install', (event) => {
 	async function addFilesToCache() {
 		const cache = await caches.open(CACHE);
 		await cache.addAll(ASSETS);
 	}
-
 	event.waitUntil(addFilesToCache());
 });
 
-// 2. 활성화 (activate): 이전 버전의 캐시를 정리합니다.
+// 2. 활성화 (activate): 이전 버전의 캐시를 정리
 self.addEventListener('activate', (event) => {
 	async function deleteOldCaches() {
 		for (const key of await caches.keys()) {
 			if (key !== CACHE) await caches.delete(key);
 		}
 	}
-
 	event.waitUntil(deleteOldCaches());
 });
 
-// 3. 요청 가로채기 (fetch): 네트워크 요청을 가로채서 캐시된 내용을 반환하거나 네트워크로 요청합니다.
+// 3. 요청 가로채기 (fetch): 캐시 우선 전략 (기존과 동일)
 self.addEventListener('fetch', (event) => {
-	// GET 요청만 캐싱 처리
 	if (event.request.method !== 'GET') return;
 
 	async function respond() {
 		const url = new URL(event.request.url);
 		const cache = await caches.open(CACHE);
 
-		// 1) 빌드 자산이나 static 파일 요청인 경우 캐시에서 바로 반환
 		if (ASSETS.includes(url.pathname)) {
 			const response = await cache.match(url.pathname);
 			if (response) return response;
 		}
 
-		// 2) 그 외 요청(페이지 등)은 네트워크 우선 시도 후 실패 시 캐시 사용
 		try {
 			const response = await fetch(event.request);
-			// 정상 응답이면 캐시 업데이트 (오프라인 대비)
 			if (response.status === 200) {
 				cache.put(event.request, response.clone());
 			}
 			return response;
 		} catch {
-			// 네트워크 실패 시 캐시된 데이터 반환 시도
 			const cachedResponse = await cache.match(event.request);
 			if (cachedResponse) return cachedResponse;
-            
-            // 캐시도 없으면 오프라인 페이지 등을 반환할 수 있음 (여기서는 생략)
 			throw new Error('Offline and no cache available');
 		}
 	}
-
 	event.respondWith(respond());
 });
