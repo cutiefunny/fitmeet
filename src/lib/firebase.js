@@ -2,7 +2,8 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
-import { getFunctions } from "firebase/functions"; // [ 1. getFunctions 임포트 ]
+import { getFunctions } from "firebase/functions";
+import { getMessaging } from "firebase/messaging"; // [ 1. getMessaging (클라이언트) 임포트 ]
 
 const firebaseConfig = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -25,4 +26,5 @@ if (!getApps().length) {
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const storage = getStorage(app);
-export const functions = getFunctions(app); // [ 2. functions export 추가 ]
+export const functions = getFunctions(app);
+export const messaging = getMessaging(app); // [ 2. messaging export 추가 ]

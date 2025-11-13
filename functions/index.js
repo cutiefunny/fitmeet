@@ -1,20 +1,20 @@
 /**
- * Firebase Cloud Functions (Callable Function)
+ * Firebase Cloud Functions
  */
 
-// HttpsError를 'firebase-functions/v2/https'에서 함께 임포트합니다.
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onDocumentDeleted, onDocumentCreated } = require("firebase-functions/v2/firestore"); // [ 1. onDocumentCreated 임포트 ]
+const { logger } = require("firebase-functions");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
+const { getMessaging } = require("firebase-admin/messaging"); // [ 2. getMessaging 임포트 ]
 
-// Firebase Admin SDK 초기화
 initializeApp();
 const db = getFirestore();
+const messaging = getMessaging(); // [ 3. messaging 인스턴스 ]
 
 /**
- * 배열을 무작위로 섞는 헬퍼 함수 (Fisher-Yates Shuffle)
- * @param {Array<any>} array - 셔플할 배열
- * @returns {Array<any>} 셔플된 배열
+ * (기존) 배열 셔플 함수
  */
 function shuffleArray(array) {
 	for (let i = array.length - 1; i > 0; i--) {
@@ -24,70 +24,178 @@ function shuffleArray(array) {
 	return array;
 }
 
+/**
+ * (기존) 추천 목록 Cloud Function
+ */
 exports.getRecommendations = onCall(async (request) => {
-	// 1. 인증 확인 (필수)
+	// ... (기존 코드와 동일)
 	if (!request.auth) {
-		// 'functions.https.HttpsError' 대신 임포트한 'HttpsError'를 사용합니다.
 		throw new HttpsError(
 			"unauthenticated",
 			"The function must be called while authenticated."
 		);
 	}
-
 	const myUid = request.auth.uid;
-
 	try {
-		// 2. 요청한 사용자(나)의 프로필 조회
 		const myProfileRef = db.collection("members").doc(myUid);
 		const myProfileSnap = await myProfileRef.get();
-
 		if (!myProfileSnap.exists) {
-			// HttpsError 사용
-			throw new HttpsError(
-				"not-found",
-				"User profile does not exist."
-			);
+			throw new HttpsError("not-found", "User profile does not exist.");
 		}
-
 		const myProfile = myProfileSnap.data();
 		const myGender = myProfile.gender;
 		const myMatchedUids = myProfile.matched || [];
-		
-		// 3. 필터링할 제외 목록 생성 (본인 + 이미 매치된 상대)
 		const exclusionSet = new Set([myUid, ...myMatchedUids]);
-
-		// 4. 타겟 성별 결정
 		const targetGender = myGender === "남성" ? "여성" : "남성";
-
-		// 5. DB 쿼리 (1차 필터링: 성별)
 		const q = db.collection("members").where("gender", "==", targetGender);
 		const querySnapshot = await q.get();
-
 		const allTargetMembers = [];
 		querySnapshot.forEach((doc) => {
 			allTargetMembers.push({ id: doc.id, ...doc.data() });
 		});
-
-		// 6. 서버에서 2차 필터링 (제외 목록)
 		const filteredMembers = allTargetMembers.filter(
 			(member) => !exclusionSet.has(member.id)
 		);
-
-		// 7. 셔플 및 잘라내기
 		const shuffledMembers = shuffleArray(filteredMembers);
-		const finalRecommendations = shuffledMembers.slice(0, 50); // 최대 50명만 반환
-
+		const finalRecommendations = shuffledMembers.slice(0, 50);
 		return finalRecommendations;
-
 	} catch (error) {
 		console.error("Error fetching recommendations:", error);
-		// HttpsError 사용 (이미 HttpsError인 경우는 그대로 throw)
 		if (error instanceof HttpsError) {
 			throw error;
 		}
-		throw new HttpsError(
-			"internal",
-			"Failed to get recommendations."
+		throw new HttpsError("internal", "Failed to get recommendations.");
+	}
+});
+
+/**
+ * (기존) 채팅방 삭제 시 메시지 삭제 Trigger
+ */
+exports.onChatRoomDeleted = onDocumentDeleted("chats/{chatId}", async (event) => {
+	// ... (기존 코드와 동일)
+	const chatId = event.params.chatId;
+	logger.log(`[ChatCleanup] Deleting messages for chatroom: ${chatId}`);
+	const collectionRef = db.collection("chats").doc(chatId).collection("messages");
+	const batchSize = 500;
+	try {
+		let snapshot = await collectionRef.limit(batchSize).get();
+		while (snapshot.size > 0) {
+			const batch = db.batch();
+			snapshot.docs.forEach((doc) => {
+				batch.delete(doc.ref);
+			});
+			await batch.commit();
+			logger.log(
+				`[ChatCleanup] Deleted ${snapshot.size} messages from chatroom: ${chatId}`
+			);
+			snapshot = await collectionRef.limit(batchSize).get();
+		}
+		logger.log(
+			`[ChatCleanup] All messages deleted successfully for chatroom: ${chatId}`
+		);
+		return null;
+	} catch (error) {
+		logger.error(
+			`[ChatCleanup] Error deleting messages for chatroom: ${chatId}`,
+			error
 		);
 	}
 });
+
+// --- [ 4. 신규 ] 새 메시지 작성 시 푸시 알림 발송 (Firestore Trigger) ---
+
+exports.onMessageCreated = onDocumentCreated(
+	"chats/{chatId}/messages/{messageId}",
+	async (event) => {
+		const messageData = event.data.data();
+		const chatId = event.params.chatId;
+
+		const senderId = messageData.senderId;
+		const messageText = messageData.text || "사진을 보냈습니다.";
+
+		logger.log(`[Push] New message from ${senderId} in chat ${chatId}`);
+
+		// 1. 채팅방 정보에서 참여자(수신자) UID 찾기
+		const chatDocRef = db.collection("chats").doc(chatId);
+		const chatDocSnap = await chatDocRef.get();
+		if (!chatDocSnap.exists) {
+			logger.warn(`[Push] Chat doc ${chatId} not found.`);
+			return null;
+		}
+
+		const participants = chatDocSnap.data().participants || [];
+		const recipientId = participants.find((uid) => uid !== senderId);
+
+		if (!recipientId) {
+			logger.warn(`[Push] Recipient ID not found in chat ${chatId}.`);
+			return null;
+		}
+
+		// 2. 수신자(recipient)의 FCM 토큰 조회
+		const recipientDocRef = db.collection("members").doc(recipientId);
+		const recipientDocSnap = await recipientDocRef.get();
+		if (!recipientDocSnap.exists) {
+			logger.warn(`[Push] Recipient member doc ${recipientId} not found.`);
+			return null;
+		}
+
+		const tokens = recipientDocSnap.data().fcmTokens || [];
+		if (tokens.length === 0) {
+			logger.log(`[Push] Recipient ${recipientId} has no FCM tokens.`);
+			return null;
+		}
+
+		// 3. 발신자(sender) 프로필에서 이름 조회
+		const senderDocRef = db.collection("members").doc(senderId);
+		const senderDocSnap = await senderDocRef.get();
+		const senderName = senderDocSnap.exists()
+			? senderDocSnap.data().name
+			: "누군가";
+
+		// 4. 푸시 알림 페이로드(Payload) 구성
+		const payload = {
+			notification: {
+				title: `${senderName}님`,
+				body: messageText
+			},
+			webpush: {
+				notification: {
+					// 웹 푸시 클릭 시 이동할 URL
+					click_action: `/chat/${senderId}`
+				}
+			},
+			tokens: tokens // 배열로 전달
+		};
+
+		try {
+			// 5. 알림 발송
+			const response = await messaging.sendMulticast(payload);
+			logger.log(`[Push] Successfully sent message to ${response.successCount} tokens.`);
+
+			// 6. (선택적) 만료된 토큰 정리
+			if (response.failureCount > 0) {
+				const tokensToRemove = [];
+				response.responses.forEach((resp, idx) => {
+					if (!resp.success) {
+						// 'messaging/registration-token-not-registered' 에러 등
+						if (resp.error.code === 'messaging/registration-token-not-registered') {
+							tokensToRemove.push(tokens[idx]);
+						}
+					}
+				});
+
+				if (tokensToRemove.length > 0) {
+					logger.log(`[Push] Removing ${tokensToRemove.length} invalid tokens.`);
+					// (Firestore `arrayRemove`는 500개가 넘으면 실패하므로,
+					//  실제로는 500개씩 나눠서 삭제해야 하나 여기서는 간단히 구현)
+					const currentTokens = recipientDocSnap.data().fcmTokens || [];
+					const validTokens = currentTokens.filter((t) => !tokensToRemove.includes(t));
+					await recipientDocRef.update({ fcmTokens: validTokens });
+				}
+			}
+		} catch (error) {
+			logger.error(`[Push] Error sending message for chat ${chatId}:`, error);
+		}
+		return null;
+	}
+);
