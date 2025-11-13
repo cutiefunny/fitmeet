@@ -2,26 +2,19 @@
  * Firebase Cloud Functions
  */
 
-// (기존) Callable Function 임포트
-const { onCall, HttpsError } = require("firebase-functions/v2/https");
-
-// [ 1. 신규 ] Firestore Trigger 및 Logger 임포트
+const { onCall, HttpsError } = require("firebase-functions/v2/https"):
 const { onDocumentDeleted, onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { logger } = require("firebase-functions");
-
-// (기존) Firebase Admin SDK 임포트
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
-const { getMessaging } = require("firebase-admin/messaging"); // [ 2. getMessaging 임포트 ]
+const { getMessaging } = require("firebase-admin/messaging");
 
-// Firebase Admin SDK 초기화
 initializeApp();
 const db = getFirestore();
-const messaging = getMessaging(); // [ 3. messaging 인스턴스 ]
+const messaging = getMessaging();
 
 /**
- * 배열을 무작위로 섞는 헬퍼 함수 (Fisher-Yates Shuffle)
- * (기존 함수)
+ * (기존) 배열 셔플 함수
  */
 function shuffleArray(array) {
 	for (let i = array.length - 1; i > 0; i--) {
@@ -46,7 +39,7 @@ exports.getRecommendations = onCall(async (request) => {
 	try {
 		const myProfileRef = db.collection("members").doc(myUid);
 		const myProfileSnap = await myProfileRef.get();
-		if (!myProfileSnap.exists) { // [ 수정 ] .exists() -> .exists
+		if (!myProfileSnap.exists) {
 			throw new HttpsError("not-found", "User profile does not exist.");
 		}
 		const myProfile = myProfileSnap.data();
@@ -109,7 +102,7 @@ exports.onChatRoomDeleted = onDocumentDeleted("chats/{chatId}", async (event) =>
 	}
 });
 
-// --- [ 4. 신규 ] 새 메시지 작성 시 푸시 알림 발송 (Firestore Trigger) ---
+// --- [ ⭐️⭐️⭐️ 수정 ⭐️⭐️⭐️ ] onMessageCreated 함수 ---
 
 exports.onMessageCreated = onDocumentCreated(
 	"chats/{chatId}/messages/{messageId}",
@@ -122,10 +115,10 @@ exports.onMessageCreated = onDocumentCreated(
 
 		logger.log(`[Push] New message from ${senderId} in chat ${chatId}`);
 
-		// 1. 채팅방 정보에서 참여자(수신자) UID 찾기
+		// 1. 수신자 UID 찾기
 		const chatDocRef = db.collection("chats").doc(chatId);
 		const chatDocSnap = await chatDocRef.get();
-		if (!chatDocSnap.exists) { // [ 수정 ] .exists() -> .exists
+		if (!chatDocSnap.exists) {
 			logger.warn(`[Push] Chat doc ${chatId} not found.`);
 			return null;
 		}
@@ -138,10 +131,10 @@ exports.onMessageCreated = onDocumentCreated(
 			return null;
 		}
 
-		// 2. 수신자(recipient)의 FCM 토큰 조회
+		// 2. 수신자 FCM 토큰 조회
 		const recipientDocRef = db.collection("members").doc(recipientId);
 		const recipientDocSnap = await recipientDocRef.get();
-		if (!recipientDocSnap.exists) { // [ 수정 ] .exists() -> .exists
+		if (!recipientDocSnap.exists) {
 			logger.warn(`[Push] Recipient member doc ${recipientId} not found.`);
 			return null;
 		}
@@ -152,36 +145,41 @@ exports.onMessageCreated = onDocumentCreated(
 			return null;
 		}
 
-		// 3. 발신자(sender) 프로필에서 이름 조회
+		// 3. 발신자 이름 조회
 		const senderDocRef = db.collection("members").doc(senderId);
 		const senderDocSnap = await senderDocRef.get();
-
-		// [ ⭐️⭐️⭐️ 오류 수정 ⭐️⭐️⭐️ ]
-		// senderDocSnap.exists() -> senderDocSnap.exists
 		const senderName = senderDocSnap.exists
 			? senderDocSnap.data().name
 			: "누군가";
 
-		// 4. 푸시 알림 페이로드(Payload) 구성
-		const payload = {
-			notification: {
+		// [ 4. 수정 ] 'data-only' 메시지로 변경
+		// 'notification' 필드를 제거하고, 모든 정보를 'data' 객체로 이동
+		const messages = tokens.map((token) => ({
+			// ❌ 'notification' 객체 제거
+			
+			// ✅ 'data' 객체로 모든 정보 전달
+			data: {
 				title: `${senderName}님`,
-				body: messageText
+				body: messageText,
+				icon: "/icon-192.png", // 아이콘
+				url: `/chat/${senderId}` // 클릭 시 이동할 링크
 			},
+			
+			// (참고: webpush 설정은 data만 보낼 땐 필수는 아님)
 			webpush: {
-				notification: {
-					click_action: `/chat/${senderId}`
+				fcmOptions: {
+					link: `/chat/${senderId}`
 				}
 			},
-			tokens: tokens // 배열로 전달
-		};
+			token: token
+		}));
 
 		try {
-			// 5. 알림 발송
-			const response = await messaging.sendMulticast(payload);
+			// [ 5. 수정 ] 'sendEach' 사용
+			const response = await messaging.sendEach(messages);
 			logger.log(`[Push] Successfully sent message to ${response.successCount} tokens.`);
 
-			// 6. (선택적) 만료된 토큰 정리
+			// 6. 만료된 토큰 정리
 			if (response.failureCount > 0) {
 				const tokensToRemove = [];
 				response.responses.forEach((resp, idx) => {
@@ -200,7 +198,7 @@ exports.onMessageCreated = onDocumentCreated(
 				}
 			}
 		} catch (error) {
-			logger.error(`[Push] Error sending message for chat ${chatId}:`, error);
+			logger.error(`[Push] Error sending messages for chat ${chatId}:`, error);
 		}
 		return null;
 	}

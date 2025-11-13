@@ -8,37 +8,34 @@ import { getMessaging, onBackgroundMessage } from 'firebase/messaging/sw';
 // --- [ 2. 신규 ] Firebase 구성 ---
 // ⚠️ 중요: 이 객체에 .env 파일의 VITE_FIREBASE_... 값들을
 //    '직접 복사/붙여넣기' 해야 합니다.
-//    (서비스 워커는 import.meta.env에 접근할 수 없습니다.)
 const firebaseConfig = {
-	apiKey: 'AIzaSyBpLnOT0iH_uKS_8fb4zdxpmXmasPZDM4M',
-	authDomain: 'fitmeet-b8336.firebaseapp.com',
-	projectId: 'fitmeet-b8336',
-	storageBucket: 'fitmeet-b8336.firebasestorage.app',
-	messagingSenderId: '435670829305',
-	appId: '1:435670829305:web:5784771de9465739dc7a28'
+	apiKey: 'YOUR_VITE_FIREBASE_API_KEY',
+	authDomain: 'YOUR_VITE_FIREBASE_AUTH_DOMAIN',
+	projectId: 'YOUR_VITE_FIREBASE_PROJECT_ID',
+	storageBucket: 'YOUR_VITE_FIREBASE_STORAGE_BUCKET',
+	messagingSenderId: 'YOUR_VITE_FIREBASE_MESSAGING_SENDER_ID',
+	appId: 'YOUR_VITE_FIREBASE_APP_ID'
 };
 
 // [ 3. 신규 ] Firebase 앱 및 메시징 초기화
 const app = initializeApp(firebaseConfig);
 const messaging = getMessaging(app);
 
-// [ 4. 신규 ] 백그라운드 메시지 핸들러
-// (앱이 백그라운드/종료 상태일 때 푸시를 받으면 실행됨)
+// [ 4. ⭐️⭐️⭐️ 수정 ⭐️⭐️⭐️ ] 백그라운드 메시지 핸들러
 onBackgroundMessage(messaging, (payload) => {
-	console.log('[SW] Received background message ', payload);
+	console.log('[SW] Received background message (data-only)', payload);
 
-	// 알림 제목/내용 구성
-	const notificationTitle = payload.notification.title || '새 메시지';
+	// [ 수정 ] 'payload.notification' 대신 'payload.data'에서 읽기
+	const notificationTitle = payload.data.title || '새 메시지';
 	const notificationOptions = {
-		body: payload.notification.body || '메시지를 확인하세요.',
-		icon: '/icon-192.png', // 알림 아이콘
-		// (웹 푸시 클릭 시 이동할 URL - Cloud Function에서 설정한 값 사용)
+		body: payload.data.body || '메시지를 확인하세요.',
+		icon: payload.data.icon || '/icon-192.png',
 		data: {
-			url: payload.fcmOptions.link || '/'
+			url: payload.data.url || '/'
 		}
 	};
 
-	// 알림 표시
+	// (기존) 알림 표시
 	self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
@@ -71,7 +68,9 @@ const ASSETS = [
 	...files // static 폴더에 있는 파일들
 ];
 
-// 1. 설치 (install): 필요한 파일들을 미리 캐싱
+// ... (install, activate, fetch 이벤트 리스너는 기존과 동일) ...
+
+// 1. 설치 (install)
 self.addEventListener('install', (event) => {
 	async function addFilesToCache() {
 		const cache = await caches.open(CACHE);
@@ -80,7 +79,7 @@ self.addEventListener('install', (event) => {
 	event.waitUntil(addFilesToCache());
 });
 
-// 2. 활성화 (activate): 이전 버전의 캐시를 정리
+// 2. 활성화 (activate)
 self.addEventListener('activate', (event) => {
 	async function deleteOldCaches() {
 		for (const key of await caches.keys()) {
@@ -90,7 +89,7 @@ self.addEventListener('activate', (event) => {
 	event.waitUntil(deleteOldCaches());
 });
 
-// 3. 요청 가로채기 (fetch): 캐시 우선 전략 (기존과 동일)
+// 3. 요청 가로채기 (fetch)
 self.addEventListener('fetch', (event) => {
 	if (event.request.method !== 'GET') return;
 
