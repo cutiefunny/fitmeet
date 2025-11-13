@@ -102,7 +102,7 @@ exports.onChatRoomDeleted = onDocumentDeleted("chats/{chatId}", async (event) =>
 	}
 });
 
-// --- [ ⭐️⭐️⭐️ 수정 ⭐️⭐️⭐️ ] onMessageCreated 함수 ---
+// --- [ 수정 ] onMessageCreated 함수 ---
 
 exports.onMessageCreated = onDocumentCreated(
 	"chats/{chatId}/messages/{messageId}",
@@ -152,20 +152,16 @@ exports.onMessageCreated = onDocumentCreated(
 			? senderDocSnap.data().name
 			: "누군가";
 
-		// [ 4. 수정 ] 'data-only' 메시지로 변경
-		// 'notification' 필드를 제거하고, 모든 정보를 'data' 객체로 이동
+		// [ 4. 수정 ] 'data-only' 메시지로 변경 (중복 알림 제거)
+		// 'badge' 필드 추가 (아이콘 변경)
 		const messages = tokens.map((token) => ({
-			// ❌ 'notification' 객체 제거
-			
-			// ✅ 'data' 객체로 모든 정보 전달
 			data: {
 				title: `${senderName}님`,
 				body: messageText,
-				icon: "/icon-192.png", // 아이콘
-				url: `/chat/${senderId}` // 클릭 시 이동할 링크
+				icon: "/icon-192.png", // 큰 아이콘 (오른쪽)
+				badge: "/icon-192.png", // [ 신규 ] 작은 아이콘 (왼쪽 - 안드로이드가 단색화)
+				url: `/chat/${senderId}`
 			},
-			
-			// (참고: webpush 설정은 data만 보낼 땐 필수는 아님)
 			webpush: {
 				fcmOptions: {
 					link: `/chat/${senderId}`
@@ -175,7 +171,7 @@ exports.onMessageCreated = onDocumentCreated(
 		}));
 
 		try {
-			// [ 5. 수정 ] 'sendEach' 사용
+			// 5. 'sendEach' 사용
 			const response = await messaging.sendEach(messages);
 			logger.log(`[Push] Successfully sent message to ${response.successCount} tokens.`);
 
