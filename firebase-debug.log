@@ -1,0 +1,87 @@
+[debug] [2025-11-13T07:25:59.354Z] ----------------------------------------------------------------------
+[debug] [2025-11-13T07:25:59.357Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\USER\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --only functions
+[debug] [2025-11-13T07:25:59.358Z] CLI Version:   14.24.2
+[debug] [2025-11-13T07:25:59.358Z] Platform:      win32
+[debug] [2025-11-13T07:25:59.358Z] Node Version:  v22.18.0
+[debug] [2025-11-13T07:25:59.358Z] Time:          Thu Nov 13 2025 16:25:59 GMT+0900 (대한민국 표준시)
+[debug] [2025-11-13T07:25:59.359Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-11-13T07:25:59.538Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-11-13T07:25:59.538Z] > authorizing via signed-in user (cutiefunny@gmail.com)
+[debug] [2025-11-13T07:25:59.539Z] [iam] checking project fitmeet-b8336 for permissions ["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]
+[debug] [2025-11-13T07:25:59.539Z] Checked if tokens are valid: true, expires at: 1763021763489
+[debug] [2025-11-13T07:25:59.540Z] Checked if tokens are valid: true, expires at: 1763021763489
+[debug] [2025-11-13T07:25:59.540Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/fitmeet-b8336:testIamPermissions [none]
+[debug] [2025-11-13T07:25:59.540Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/fitmeet-b8336:testIamPermissions x-goog-quota-user=projects/fitmeet-b8336
+[debug] [2025-11-13T07:25:59.540Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/fitmeet-b8336:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]}
+[debug] [2025-11-13T07:25:59.824Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/fitmeet-b8336:testIamPermissions 200
+[debug] [2025-11-13T07:25:59.824Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/fitmeet-b8336:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]}
+[debug] [2025-11-13T07:25:59.824Z] Checked if tokens are valid: true, expires at: 1763021763489
+[debug] [2025-11-13T07:25:59.824Z] Checked if tokens are valid: true, expires at: 1763021763489
+[debug] [2025-11-13T07:25:59.824Z] >>> [apiv2][query] POST https://iam.googleapis.com/v1/projects/fitmeet-b8336/serviceAccounts/fitmeet-b8336@appspot.gserviceaccount.com:testIamPermissions [none]
+[debug] [2025-11-13T07:25:59.824Z] >>> [apiv2][body] POST https://iam.googleapis.com/v1/projects/fitmeet-b8336/serviceAccounts/fitmeet-b8336@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}
+[debug] [2025-11-13T07:26:00.792Z] <<< [apiv2][status] POST https://iam.googleapis.com/v1/projects/fitmeet-b8336/serviceAccounts/fitmeet-b8336@appspot.gserviceaccount.com:testIamPermissions 200
+[debug] [2025-11-13T07:26:00.792Z] <<< [apiv2][body] POST https://iam.googleapis.com/v1/projects/fitmeet-b8336/serviceAccounts/fitmeet-b8336@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}
+[info] 
+[info] === Deploying to 'fitmeet-b8336'...
+[info] 
+[info] i  deploying functions 
+[debug] [2025-11-13T07:26:00.795Z] Checked if tokens are valid: true, expires at: 1763021763489
+[debug] [2025-11-13T07:26:00.795Z] Checked if tokens are valid: true, expires at: 1763021763489
+[debug] [2025-11-13T07:26:00.795Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/projects/fitmeet-b8336 [none]
+[debug] [2025-11-13T07:26:00.992Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/projects/fitmeet-b8336 200
+[debug] [2025-11-13T07:26:00.992Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/projects/fitmeet-b8336 {"projectNumber":"435670829305","projectId":"fitmeet-b8336","lifecycleState":"ACTIVE","name":"fitmeet","labels":{"firebase":"enabled","firebase-core":"disabled"},"createTime":"2025-11-10T07:10:58.393609Z"}
+[info] i  functions: preparing codebase default for deployment 
+[info] i  functions: ensuring required API cloudfunctions.googleapis.com is enabled... 
+[info] i  functions: ensuring required API cloudbuild.googleapis.com is enabled... 
+[info] i  artifactregistry: ensuring required API artifactregistry.googleapis.com is enabled... 
+[debug] [2025-11-13T07:26:00.996Z] Checked if tokens are valid: true, expires at: 1763021763489
+[debug] [2025-11-13T07:26:00.996Z] Checked if tokens are valid: true, expires at: 1763021763489
+[debug] [2025-11-13T07:26:00.996Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/fitmeet-b8336/adminSdkConfig [none]
+[debug] [2025-11-13T07:26:01.960Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/fitmeet-b8336/adminSdkConfig 200
+[debug] [2025-11-13T07:26:01.960Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/fitmeet-b8336/adminSdkConfig {"projectId":"fitmeet-b8336","storageBucket":"fitmeet-b8336.firebasestorage.app"}
+[debug] [2025-11-13T07:26:01.961Z] Validating nodejs source
+[debug] [2025-11-13T07:26:02.664Z] > [functions] package.json contents: {
+  "name": "functions",
+  "description": "Cloud Functions for Firebase",
+  "scripts": {
+    "serve": "firebase emulators:start --only functions",
+    "shell": "firebase functions:shell",
+    "start": "npm run shell",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "engines": {
+    "node": "22"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^7.0.0"
+  },
+  "devDependencies": {
+    "firebase-functions-test": "^3.1.0"
+  },
+  "private": true
+}
+[debug] [2025-11-13T07:26:02.665Z] Building nodejs source
+[info] i  functions: Loading and analyzing source code for codebase default to determine what to deploy 
+[debug] [2025-11-13T07:26:02.666Z] Could not find functions.yaml. Must use http discovery
+[debug] [2025-11-13T07:26:02.677Z] Found firebase-functions binary at 'C:\project\fitmeet\functions\node_modules\.bin\firebase-functions'
+[info] Serving at port 8862
+
+[debug] [2025-11-13T07:26:03.167Z] Got response from /__/functions.yaml {"endpoints":{"getRecommendations":{"availableMemoryMb":null,"timeoutSeconds":null,"minInstances":null,"maxInstances":null,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","labels":{},"callableTrigger":{},"entryPoint":"getRecommendations"},"onChatRoomDeleted":{"availableMemoryMb":null,"timeoutSeconds":null,"minInstances":null,"maxInstances":null,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.deleted","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"chats/{chatId}"},"retry":false},"entryPoint":"onChatRoomDeleted"},"onMessageCreated":{"availableMemoryMb":null,"timeoutSeconds":null,"minInstances":null,"maxInstances":null,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.created","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"chats/{chatId}/messages/{messageId}"},"retry":false},"entryPoint":"onMessageCreated"}},"specVersion":"v1alpha1","requiredAPIs":[],"extensions":{}}
+[info] i  extensions: ensuring required API firebaseextensions.googleapis.com is enabled... 
+[debug] [2025-11-13T07:26:07.207Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-11-13T07:26:07.207Z] > authorizing via signed-in user (cutiefunny@gmail.com)
+[debug] [2025-11-13T07:26:07.207Z] [iam] checking project fitmeet-b8336 for permissions ["firebase.projects.get","firebaseextensions.instances.list"]
+[debug] [2025-11-13T07:26:07.207Z] Checked if tokens are valid: true, expires at: 1763021763489
+[debug] [2025-11-13T07:26:07.208Z] Checked if tokens are valid: true, expires at: 1763021763489
+[debug] [2025-11-13T07:26:07.208Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/fitmeet-b8336:testIamPermissions [none]
+[debug] [2025-11-13T07:26:07.208Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/fitmeet-b8336:testIamPermissions x-goog-quota-user=projects/fitmeet-b8336
+[debug] [2025-11-13T07:26:07.208Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/fitmeet-b8336:testIamPermissions {"permissions":["firebase.projects.get","firebaseextensions.instances.list"]}
+[debug] [2025-11-13T07:26:07.730Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/fitmeet-b8336:testIamPermissions 200
+[debug] [2025-11-13T07:26:07.730Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/fitmeet-b8336:testIamPermissions {"permissions":["firebase.projects.get","firebaseextensions.instances.list"]}
+[debug] [2025-11-13T07:26:07.731Z] Checked if tokens are valid: true, expires at: 1763021763489
+[debug] [2025-11-13T07:26:07.731Z] Checked if tokens are valid: true, expires at: 1763021763489
+[debug] [2025-11-13T07:26:07.732Z] >>> [apiv2][query] GET https://firebaseextensions.googleapis.com/v1beta/projects/fitmeet-b8336/instances pageSize=100&pageToken=
