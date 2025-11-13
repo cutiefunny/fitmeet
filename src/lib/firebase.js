@@ -3,7 +3,8 @@ import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
-import { getMessaging } from "firebase/messaging"; // [ 1. getMessaging (클라이언트) 임포트 ]
+import { getMessaging } from "firebase/messaging";
+import { browser } from '$app/environment'; // [ 1. SvelteKit 'browser' 임포트 ]
 
 const firebaseConfig = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -14,7 +15,6 @@ const firebaseConfig = {
     appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-// SvelteKit 개발 중 HMR(Hot Module Replacement)로 인한 중복 초기화 방지
 let app;
 if (!getApps().length) {
     app = initializeApp(firebaseConfig);
@@ -27,4 +27,7 @@ export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 export const functions = getFunctions(app);
-export const messaging = getMessaging(app); // [ 2. messaging export 추가 ]
+
+// [ 2. 수정 ] 'messaging'은 'browser' 환경일 때만 초기화합니다.
+// 서버(SSR) 환경에서는 null을 할당합니다.
+export const messaging = browser ? getMessaging(app) : null;
