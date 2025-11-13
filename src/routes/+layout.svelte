@@ -1,14 +1,13 @@
 <script>
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
-	import { auth, db, messaging } from '$lib/firebase';
-	import { onAuthStateChanged } from 'firebase/auth';
-	import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
-	import { getToken, onMessage } from 'firebase/messaging';
+	// [ 1. 수정 ] auth, db, firestore 함수 임포트 제거
+	import { messaging } from '$lib/firebase';
+	// [ 2. 수정 ] getToken 등 제거, onMessage만 남김
+	import { onMessage } from 'firebase/messaging';
 
 	let { children } = $props();
 
-	// (주의: .env 파일에 VITE_FIREBASE_VAPID_KEY="YOUR_KEY_HERE" 추가 필요)
 	const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
 
 	let showNav = $derived(
@@ -17,62 +16,24 @@
 			$page.route.id?.startsWith('/matches')
 	);
 
+	// [ 3. 수정 ] onMount에서 토큰 등록/권한 요청 로직 모두 제거
 	onMount(() => {
+		// 'messaging'이 브라우저에서 초기화되었는지 확인
 		if (messaging && vapidKey) {
-			const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-				if (user) {
-					if ('Notification' in window) {
-						setupPushNotifications(user.uid);
-					}
-				}
-			});
-
+			
+			// 앱이 켜져있을 때(포그라운드) 메시지를 수신하는 리스너만 남겨둠
 			onMessage(messaging, (payload) => {
 				console.log('[Push] Message received in foreground: ', payload);
+				// (향후 이곳에 커스텀 토스트/알림 UI를 띄울 수 있음)
 			});
-
-			return () => {
-				unsubscribeAuth();
-			};
+		} else if (!messaging) {
+			console.log('FCM in SSR mode. Skipping listeners.');
 		} else if (!vapidKey) {
 			console.warn('VITE_FIREBASE_VAPID_KEY가 .env 파일에 설정되지 않았습니다. 푸시 알림이 비활성화됩니다.');
 		}
 	});
 
-	// [ 1. 'setupPushNotifications' 함수 수정 ]
-	async function setupPushNotifications(uid) {
-		if (!messaging) return;
-
-		try {
-			const permission = await Notification.requestPermission();
-			if (permission !== 'granted') {
-				console.log('알림 권한이 거부되었습니다.');
-				return;
-			}
-
-			// (신규) SvelteKit이 등록한 서비스 워커('src/service-worker.js')를 가져옵니다.
-			const swRegistration = await navigator.serviceWorker.ready;
-
-			// (수정) getToken에 serviceWorkerRegistration을 전달합니다.
-			// 이렇게 하면 FCM은 /firebase-messaging-sw.js를 찾지 않습니다.
-			const currentToken = await getToken(messaging, {
-				vapidKey: vapidKey,
-				serviceWorkerRegistration: swRegistration
-			});
-
-			if (currentToken) {
-				console.log('[Push] FCM Token:', currentToken);
-				const userDocRef = doc(db, 'members', uid);
-				await updateDoc(userDocRef, {
-					fcmTokens: arrayUnion(currentToken)
-				});
-			} else {
-				console.log('FCM 토큰을 발급받지 못했습니다.');
-			}
-		} catch (err) {
-			console.error('푸시 알림 설정 중 오류 발생:', err);
-		}
-	}
+	// [ 4. 수정 ] setupPushNotifications 함수 제거
 </script>
 
 <svelte:head>
