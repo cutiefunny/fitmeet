@@ -2,7 +2,7 @@
  * Firebase Cloud Functions
  */
 
-const { onCall, HttpsError } = require("firebase-functions/v2/https"):
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onDocumentDeleted, onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { logger } = require("firebase-functions");
 const { initializeApp } = require("firebase-admin/app");
