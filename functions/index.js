@@ -2,19 +2,26 @@
  * Firebase Cloud Functions
  */
 
+// (기존) Callable Function 임포트
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
-const { onDocumentDeleted, onDocumentCreated } = require("firebase-functions/v2/firestore"); // [ 1. onDocumentCreated 임포트 ]
+
+// [ 1. 신규 ] Firestore Trigger 및 Logger 임포트
+const { onDocumentDeleted, onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { logger } = require("firebase-functions");
+
+// (기존) Firebase Admin SDK 임포트
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging"); // [ 2. getMessaging 임포트 ]
 
+// Firebase Admin SDK 초기화
 initializeApp();
 const db = getFirestore();
 const messaging = getMessaging(); // [ 3. messaging 인스턴스 ]
 
 /**
- * (기존) 배열 셔플 함수
+ * 배열을 무작위로 섞는 헬퍼 함수 (Fisher-Yates Shuffle)
+ * (기존 함수)
  */
 function shuffleArray(array) {
 	for (let i = array.length - 1; i > 0; i--) {
@@ -39,7 +46,7 @@ exports.getRecommendations = onCall(async (request) => {
 	try {
 		const myProfileRef = db.collection("members").doc(myUid);
 		const myProfileSnap = await myProfileRef.get();
-		if (!myProfileSnap.exists) {
+		if (!myProfileSnap.exists) { // [ 수정 ] .exists() -> .exists
 			throw new HttpsError("not-found", "User profile does not exist.");
 		}
 		const myProfile = myProfileSnap.data();
@@ -118,7 +125,7 @@ exports.onMessageCreated = onDocumentCreated(
 		// 1. 채팅방 정보에서 참여자(수신자) UID 찾기
 		const chatDocRef = db.collection("chats").doc(chatId);
 		const chatDocSnap = await chatDocRef.get();
-		if (!chatDocSnap.exists) {
+		if (!chatDocSnap.exists) { // [ 수정 ] .exists() -> .exists
 			logger.warn(`[Push] Chat doc ${chatId} not found.`);
 			return null;
 		}
@@ -134,7 +141,7 @@ exports.onMessageCreated = onDocumentCreated(
 		// 2. 수신자(recipient)의 FCM 토큰 조회
 		const recipientDocRef = db.collection("members").doc(recipientId);
 		const recipientDocSnap = await recipientDocRef.get();
-		if (!recipientDocSnap.exists) {
+		if (!recipientDocSnap.exists) { // [ 수정 ] .exists() -> .exists
 			logger.warn(`[Push] Recipient member doc ${recipientId} not found.`);
 			return null;
 		}
@@ -148,7 +155,10 @@ exports.onMessageCreated = onDocumentCreated(
 		// 3. 발신자(sender) 프로필에서 이름 조회
 		const senderDocRef = db.collection("members").doc(senderId);
 		const senderDocSnap = await senderDocRef.get();
-		const senderName = senderDocSnap.exists()
+
+		// [ ⭐️⭐️⭐️ 오류 수정 ⭐️⭐️⭐️ ]
+		// senderDocSnap.exists() -> senderDocSnap.exists
+		const senderName = senderDocSnap.exists
 			? senderDocSnap.data().name
 			: "누군가";
 
@@ -160,7 +170,6 @@ exports.onMessageCreated = onDocumentCreated(
 			},
 			webpush: {
 				notification: {
-					// 웹 푸시 클릭 시 이동할 URL
 					click_action: `/chat/${senderId}`
 				}
 			},
@@ -177,7 +186,6 @@ exports.onMessageCreated = onDocumentCreated(
 				const tokensToRemove = [];
 				response.responses.forEach((resp, idx) => {
 					if (!resp.success) {
-						// 'messaging/registration-token-not-registered' 에러 등
 						if (resp.error.code === 'messaging/registration-token-not-registered') {
 							tokensToRemove.push(tokens[idx]);
 						}
@@ -186,8 +194,6 @@ exports.onMessageCreated = onDocumentCreated(
 
 				if (tokensToRemove.length > 0) {
 					logger.log(`[Push] Removing ${tokensToRemove.length} invalid tokens.`);
-					// (Firestore `arrayRemove`는 500개가 넘으면 실패하므로,
-					//  실제로는 500개씩 나눠서 삭제해야 하나 여기서는 간단히 구현)
 					const currentTokens = recipientDocSnap.data().fcmTokens || [];
 					const validTokens = currentTokens.filter((t) => !tokensToRemove.includes(t));
 					await recipientDocRef.update({ fcmTokens: validTokens });
