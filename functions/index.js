@@ -159,7 +159,7 @@ exports.onMessageCreated = onDocumentCreated(
 				title: `${senderName}님`,
 				body: messageText,
 				icon: "/icon-192.png", // 큰 아이콘 (오른쪽)
-				badge: "/icon-192.png", // [ 신규 ] 작은 아이콘 (왼쪽 - 안드로이드가 단색화)
+				badge: "/badge.png", // [ 신규 ] 작은 아이콘 (왼쪽 - 안드로이드가 단색화)
 				url: `/chat/${senderId}`
 			},
 			webpush: {

@@ -26,7 +26,7 @@ onBackgroundMessage(messaging, (payload) => {
 	// 'payload.data'에서 알림 정보 읽기 (중복 알림 제거)
 	const notificationTitle = payload.data.title || '새 메시지';
 	const notificationOptions = {
-		body: payload.data.body || '메시지를 확인하세요.',
+		body: payload.data.body || '메시지를 확인하세요!',
 		icon: payload.data.icon || '/icon-192.png', // 큰 아이콘
 		badge: payload.data.badge || '/badge.png', // [ 신규 ] 작은 아이콘 (단색화됨)
 		data: {
