@@ -1,8 +1,6 @@
-[cutiefunny/fitmeet/fitmeet-fba7ac078c9c20e302896d787e80301a51ec0c6c/src/routes/likes/+page.svelte]
 <script>
 	import { onMount } from 'svelte';
 	import { db, auth } from '$lib/firebase';
-	// [ 1. 필요한 Firestore 함수 임포트 ]
 	import {
 		doc,
 		getDoc,
@@ -10,35 +8,44 @@
 		getDocs,
 		query,
 		where,
-		documentId
+		documentId,
+		writeBatch, // [ 1. 'writeBatch' 임포트 ]
+		arrayUnion, // [ 2. 'arrayUnion' 임포트 ]
+		increment // [ 3. 'increment' 임포트 ]
 	} from 'firebase/firestore';
 	import { onAuthStateChanged } from 'firebase/auth';
+	import ProfileDetailModal from '$lib/components/ProfileDetailModal.svelte'; // [ 4. 모달 임포트 ]
+	import MatchModal from '$lib/components/MatchModal.svelte'; // [ 5. 모달 임포트 ]
 
 	let currentUser = null;
-	let likesReceivedList = []; // { id, name, photo, count }
+	let likesReceivedList = []; // { id, name, photo, count, ...profile }
 	let isLoading = true;
 
+	// [ 6. 신규 ] 모달 상태 변수
+	let showProfileModal = false;
+	let selectedProfile = null;
+	let showMatchModal = false;
+	let matchedProfile = null; // MatchModal에 전달할 프로필
+
+	// 'config/stats' 문서 참조 (매치 수 증가용)
+	const statsDocRef = doc(db, 'config', 'stats');
+
 	onMount(() => {
-		// [ 2. 로그인 상태 확인 ]
 		const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
 			if (user) {
 				currentUser = user;
-				// 로그인 확인 시 '받은 LIKE' 목록 가져오기
 				await fetchLikesDetails(user.uid);
 			} else {
 				currentUser = null;
 				isLoading = false;
-				// (로그인되지 않은 사용자는 빈 화면을 보게 됨)
 			}
 		});
 		return unsubscribeAuth;
 	});
 
-	// [ 3. 데이터 Fetching 함수 ]
 	async function fetchLikesDetails(myUid) {
 		isLoading = true;
 		try {
-			// 1. 내 프로필 문서를 가져와서 'likesReceivedCount' 맵과 'matched' 배열을 확보
 			const myProfileRef = doc(db, 'members', myUid);
 			const myProfileSnap = await getDoc(myProfileRef);
 
@@ -50,58 +57,48 @@
 
 			const myProfile = myProfileSnap.data();
 			const likesCountMap = myProfile.likesReceivedCount;
-			const matchedUids = myProfile.matched || []; // [ 1. 수정 ] 매치된 UID 목록 가져오기
-			// 예: { uid1: 5, uid2: 1 }
+			const matchedUids = myProfile.matched || [];
 
-			// 'LIKE'를 보낸 사람이 아무도 없으면 빈 배열로 종료
 			if (!likesCountMap || Object.keys(likesCountMap).length === 0) {
 				likesReceivedList = [];
 				isLoading = false;
 				return;
 			}
 
-			// 'LIKE'를 보낸 사람들의 UID 목록
 			const likerUids = Object.keys(likesCountMap);
-			
-			// [ 2. 수정 ] 'LIKE' 보낸 사람 중, 이미 매치된 사람은 제외
-			const likerUidsToShow = likerUids.filter(uid => !matchedUids.includes(uid));
+			const likerUidsToShow = likerUids.filter((uid) => !matchedUids.includes(uid));
 
-			// 'LIKE'를 보낸 사람이 아무도 없으면 (or 모두 매치되었으면) 빈 배열로 종료
 			if (likerUidsToShow.length === 0) {
 				likesReceivedList = [];
 				isLoading = false;
 				return;
 			}
 
-			// 2. 'in' 쿼리를 사용해 'LIKE'를 보낸 사람들의 프로필을 한 번에 가져오기
-			// (참고: Firestore 'in' 쿼리는 최대 30개 ID까지 지원합니다.
-			//  더 많아지면 쿼리를 분할해야 하지만, 현재 단계에서는 30개로 가정합니다.)
-			// [ 3. 수정 ] 'in' 쿼리에 likerUidsToShow 사용
 			const likersQuery = query(collection(db, 'members'), where(documentId(), 'in', likerUidsToShow));
 			const likersSnapshot = await getDocs(likersQuery);
 
-			// (조회를 쉽게 하기 위해 UID를 키로 하는 맵을 임시로 생성)
 			const tempLikerProfiles = {};
 			likersSnapshot.docs.forEach((doc) => {
 				tempLikerProfiles[doc.id] = doc.data();
 			});
 
-			// 3. '횟수' 정보와 '프로필' 정보를 결합하여 최종 목록 생성
-			// [ 4. 수정 ] likerUidsToShow 기준으로 최종 목록 생성
+			// [ 7. 수정 ] 프로필 전체 데이터 저장
 			likesReceivedList = likerUidsToShow
 				.map((uid) => {
 					const profile = tempLikerProfiles[uid];
+					if (!profile) return null; // 프로필 없는 경우 제외
+
 					return {
 						id: uid,
-						name: profile ? profile.name : '알 수 없는 사용자',
+						...profile, // <-- 프로필 정보 전체 저장
 						photo:
-							profile && profile.photos && profile.photos.length > 0
+							profile.photos && profile.photos.length > 0
 								? profile.photos[0]
 								: 'https://placehold.co/100x100/grey/white?text=...',
-						count: likesCountMap[uid] // 'likesReceivedCount' 맵에서 횟수를 가져옴
+						count: likesCountMap[uid]
 					};
 				})
-				// 'LIKE'를 많이 보낸 순서로 정렬
+				.filter(Boolean) // null 항목 제거
 				.sort((a, b) => b.count - a.count);
 		} catch (error) {
 			console.error('Error fetching likes details:', error);
@@ -109,13 +106,85 @@
 			isLoading = false;
 		}
 	}
+
+	// [ 8. 신규 ] 모달 핸들러
+	function showDetails(liker) {
+		selectedProfile = liker;
+		showProfileModal = true;
+	}
+
+	function closeModals() {
+		showProfileModal = false;
+		showMatchModal = false;
+		selectedProfile = null;
+		matchedProfile = null;
+	}
+
+	// [ 9. 신규 ] PASS 핸들러
+	function handlePass() {
+		if (!selectedProfile) return;
+		// (간단하게 로컬 목록에서만 제거. 영구 '거절'은 로직이 복잡해지므로 일단 생략)
+		likesReceivedList = likesReceivedList.filter((l) => l.id !== selectedProfile.id);
+		closeModals();
+	}
+
+	// [ 10. 신규 ] LIKE 수락 (매치) 핸들러
+	async function handleLikeBack() {
+		if (!currentUser || !selectedProfile) return;
+
+		const myUid = currentUser.uid;
+		const targetUid = selectedProfile.id;
+
+		// 1. 매치될 프로필 정보를 미리 저장
+		matchedProfile = selectedProfile;
+
+		try {
+			// Firestore 업데이트 (Batch 사용)
+			const batch = writeBatch(db);
+
+			// 1. 내 'members' 문서 업데이트: matched 배열에 상대방 추가
+			const myProfileRef = doc(db, 'members', myUid);
+			batch.update(myProfileRef, {
+				matched: arrayUnion(targetUid)
+			});
+
+			// 2. 상대방 'members' 문서 업데이트: matched 배열에 나를 추가
+			const targetProfileRef = doc(db, 'members', targetUid);
+			batch.update(targetProfileRef, {
+				matched: arrayUnion(myUid)
+			});
+
+			// 3. 'config/stats' 문서 업데이트: totalMatches 1 증가
+			batch.update(statsDocRef, {
+				totalMatches: increment(1)
+			});
+
+			// 4. Batch 실행
+			await batch.commit();
+
+			// 5. 모달 상태 변경 (프로필 상세 닫고 -> 매치 모달 열기)
+			showProfileModal = false;
+			showMatchModal = true;
+			// (MatchModal이 닫힐 때 로컬 리스트에서 제거됨, handleMatchModalClose 참조)
+		} catch (err) {
+			console.error('Error processing Like Back (match):', err);
+			alert('매치 처리 중 오류가 발생했습니다.');
+		}
+	}
+
+	// [ 11. 신규 ] 매치 모달 닫기 핸들러
+	function handleMatchModalClose() {
+		// 로컬 '받은 LIKE' 목록에서 매치된 사용자 제거
+		if (matchedProfile) {
+			likesReceivedList = likesReceivedList.filter((l) => l.id !== matchedProfile.id);
+		}
+		closeModals(); // 모든 모달 닫기
+	}
 </script>
 
 <div class="app-container">
 	<header class="app-header">
-		<a href="/" class="back-link" sveltekit:prefetch>←</a>
 		<h1 class="logo">받은 LIKE</h1>
-		<div class="placeholder" />
 	</header>
 
 	<main class="main-content">
@@ -130,7 +199,13 @@
 		{:else}
 			<div class="likes-list">
 				{#each likesReceivedList as liker (liker.id)}
-					<div class="liker-item">
+					<div
+						class="liker-item"
+						on:click={() => showDetails(liker)}
+						on:keydown={(e) => e.key === 'Enter' && showDetails(liker)}
+						role="button"
+						tabindex="0"
+					>
 						<img src={liker.photo} alt={liker.name} class="liker-avatar" />
 						<div class="liker-info">
 							<h3>{liker.name}</h3>
@@ -141,10 +216,28 @@
 			</div>
 		{/if}
 	</main>
+
+	{#if showProfileModal && selectedProfile}
+		<ProfileDetailModal
+			profile={selectedProfile}
+			context="like"
+			on:close={closeModals}
+			on:likeBack={handleLikeBack}
+			on:pass={handlePass}
+		/>
+	{/if}
+
+	{#if showMatchModal && matchedProfile && currentUser}
+		<MatchModal
+			currentUser={currentUser}
+			matchedUser={matchedProfile}
+			on:close={handleMatchModalClose}
+		/>
+	{/if}
 </div>
 
 <style>
-	/* +page.svelte의 스타일 일부를 재사용하여 일관성 유지 */
+	/* ... (기존 스타일 동일) ... */
 	:global(body) {
 		margin: 0;
 		padding: 0;
@@ -159,7 +252,7 @@
 	}
 	.app-container {
 		max-width: 500px;
-		height: 100dvh;
+		height: calc(100dvh - 60px);
 		margin: 0 auto;
 		background-color: #fff;
 		display: flex;
@@ -170,7 +263,7 @@
 	.app-header {
 		height: 60px;
 		display: flex;
-		justify-content: space-between;
+		justify-content: center;
 		align-items: center;
 		padding: 0 20px;
 		border-bottom: 1px solid #eee;
@@ -182,20 +275,10 @@
 		margin: 0;
 		letter-spacing: -0.5px;
 	}
-	.back-link {
-		font-size: 24px;
-		font-weight: bold;
-		color: #333;
-		text-decoration: none;
-		width: 40px; /* 로고 중앙 정렬을 위한 너비 */
-	}
-	.placeholder {
-		width: 40px; /* 로고 중앙 정렬을 위한 너비 */
-	}
 	.main-content {
 		flex: 1;
 		padding: 16px;
-		overflow-y: auto; /* 목록이 길어지면 스크롤 */
+		overflow-y: auto;
 	}
 	.empty-state {
 		flex: 1;
@@ -207,8 +290,6 @@
 		text-align: center;
 		line-height: 1.6;
 	}
-
-	/* 이 페이지 전용 스타일 */
 	.likes-list {
 		display: flex;
 		flex-direction: column;
@@ -221,6 +302,12 @@
 		padding: 12px;
 		background-color: #f9f9f9;
 		border-radius: 12px;
+		/* [ 14. 수정 ] 클릭 가능하도록 스타일 추가 */
+		cursor: pointer;
+		transition: background-color 0.2s;
+	}
+	.liker-item:hover {
+		background-color: #f0f2f5;
 	}
 	.liker-avatar {
 		width: 60px;

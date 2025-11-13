@@ -1,15 +1,14 @@
 <script>
-	// 롤백
-	// Swiper.js CSS 임포트
+	// [ 1. Swiper 임포트 추가 ]
+	import { register } from 'swiper/element/bundle';
 	import 'swiper/css';
 	import 'swiper/css/pagination';
+	import 'swiper/css/effect-fade'; // 페이드 효과
 
 	import { onMount, onDestroy } from 'svelte';
-	import { db, auth } from '$lib/firebase';
+	import { db, auth, functions } from '$lib/firebase';
+	import { httpsCallable } from 'firebase/functions';
 	import {
-		collection,
-		getDocs,
-		query,
 		doc,
 		getDoc,
 		setDoc,
@@ -17,7 +16,8 @@
 		updateDoc,
 		arrayUnion,
 		increment,
-		addDoc // [ 1. 'addDoc' 임포트 추가 ]
+		addDoc,
+		collection // [ 1. collection 임포트 추가 (handleGoogleLogin용) ]
 	} from 'firebase/firestore';
 	import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 
@@ -31,6 +31,16 @@
 
 	// 'config/stats' 문서 참조
 	const statsDocRef = doc(db, 'config', 'stats');
+
+	// [ 3. 정적 이미지 목록 ]
+	const guestImages = [
+		'/images/man1-1.jpg',
+		'/images/woman1-1.jpg',
+		'/images/man1-2.jpg',
+		'/images/woman1-2.jpg',
+		'/images/man2-1.jpg',
+		'/images/woman1-3.jpg'
+	];
 
 	let currentUser = null;
 	let defaultAvatar = 'https://placehold.co/100x100/indigo/white?text=ME';
@@ -46,34 +56,32 @@
 	let customAlertMessage = '';
 	let showMatchModal = false;
 	let matchedProfile = null;
-	let autoSwipeTimer = null;
 
 	// --- Firebase 인증 상태 감지 ---
 	let unsubscribeAuth;
 	onMount(async () => {
-		// [ 2. 수정 ] onMount 시 'totalVisits' 1 증가
+		// [ 2. onMount 수정 ] Swiper 등록
+		register();
+
+		// 방문자 수 집계
 		try {
-			// (오류가 나도 앱 실행에 영향이 없도록 try/catch로 감쌈)
 			await updateDoc(statsDocRef, {
 				totalVisits: increment(1)
 			});
 		} catch (e) {
 			console.warn('방문자 수 집계 실패:', e.message);
-			// (stats 문서가 아직 없으면 Firestore가 자동으로 생성하지 않으므로,
-			//  최초 1회 수동 생성이 필요할 수 있습니다.)
 		}
 
-		isLoading = true;
+		// 스포츠 목록 로드
 		try {
-			await Promise.all([fetchRecommendations(), fetchSportsList()]);
+			await fetchSportsList();
 		} catch (error) {
 			console.error('초기 데이터 로딩 실패:', error);
 			customAlertMessage = '데이터 로딩 중 오류가 발생했습니다.';
 			showCustomAlert = true;
-		} finally {
-			isLoading = false;
 		}
 
+		// 인증 상태 감지
 		unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
 			if (user) {
 				currentUser = {
@@ -89,9 +97,11 @@
 
 				if (!userProfileSnap.exists()) {
 					showCreateProfileModal = true;
+					isLoading = false;
+					recommendations = [];
 				} else {
 					currentUser.profile = userProfileSnap.data();
-					// 'LIKE' 충전 로직 (동일)
+					// 'LIKE' 충전 로직
 					const profile = currentUser.profile;
 					const today = new Date();
 					const lastRechargeDate = profile.lastLikeRecharge
@@ -112,16 +122,19 @@
 							}
 						}
 					}
+					// 프로필 확인 후 추천 로드
+					await fetchRecommendations();
 				}
 			} else {
 				currentUser = null;
+				isLoading = false;
+				recommendations = [];
 			}
 		});
 	});
 
 	onDestroy(() => {
 		if (unsubscribeAuth) unsubscribeAuth();
-		stopAutoSwipe();
 	});
 
 	// --- 프로필 저장 핸들러 ---
@@ -150,6 +163,10 @@
 			}
 			currentUser.profile = { ...currentUser.profile, ...memberData };
 			showCreateProfileModal = false;
+
+			if (!memberData.updatedAt) {
+				await fetchRecommendations();
+			}
 		} catch (error) {
 			console.error('Error saving profile: ', error);
 			customAlertMessage = '프로필 저장 중 오류가 발생했습니다: \n' + error.message;
@@ -167,10 +184,8 @@
 	async function handleGoogleLogin() {
 		const provider = new GoogleAuthProvider();
 		try {
-			// [ 3. 수정 ] 로그인 성공 시 'loginHistory'에 기록
 			const result = await signInWithPopup(auth, provider);
 			const user = result.user;
-			// 백그라운드에서 로그인 기록 (실패해도 UI에 영향 없음)
 			try {
 				await addDoc(collection(db, 'loginHistory'), {
 					userId: user.uid,
@@ -224,15 +239,7 @@
 		nextProfile();
 	}
 
-	// --- 데이터 로딩 및 셔플 ---
-	function shuffleArray(array) {
-		for (let i = array.length - 1; i > 0; i--) {
-			const j = Math.floor(Math.random() * (i + 1));
-			[array[i], array[j]] = [array[j], array[i]];
-		}
-		return array;
-	}
-
+	// --- 데이터 로딩 ---
 	function isSameDay(date1, date2) {
 		if (!date1 || !date2) return false;
 		return (
@@ -259,83 +266,45 @@
 	}
 
 	async function fetchRecommendations() {
+		isLoading = true;
 		try {
-			const q = query(collection(db, 'members'));
-			const querySnapshot = await getDocs(q);
-			let allMembers = querySnapshot.docs.map((doc) => ({
-				id: doc.id,
-				...doc.data()
-			}));
-			recommendations = shuffleArray(allMembers);
+			const getRecommendations = httpsCallable(functions, 'getRecommendations');
+			const result = await getRecommendations();
+			recommendations = result.data;
 		} catch (error) {
 			console.error('Error fetching recommendations:', error);
-			throw error;
+			if (error.code === 'unauthenticated' || error.code === 'not-found') {
+				customAlertMessage = '추천을 받으려면 프로필이 필요합니다.';
+			} else {
+				customAlertMessage = '추천 목록을 불러오는 데 실패했습니다.';
+			}
+			showCustomAlert = true;
+			recommendations = [];
+		} finally {
+			isLoading = false;
 		}
 	}
 
 	// --- Svelte 반응형 선언 ($:) ---
-	// [ 1. 수정 ]
 	$: displayRecommendations = recommendations.filter((member) => {
 		if (currentUser && currentUser.profile) {
-			// A. 본인 제외
-			if (member.id === currentUser.uid) {
-				return false;
-			}
-			
-			// B. [추가] 이미 매칭된 상대 제외
+			if (member.id === currentUser.uid) return false;
 			if (currentUser.profile.matched && currentUser.profile.matched.includes(member.id)) {
 				return false;
 			}
-
-			// C. 성별 필터링
-			if (currentUser.profile.gender === '남성') {
-				return member.gender === '여성';
-			}
-			if (currentUser.profile.gender === '여성') {
-				return member.gender === '남성';
-			}
-			return false;
-		} else {
-			// 로그인 안 한 상태에서는 모두 표시
 			return true;
 		}
+		return false;
 	});
 	$: currentProfile = displayRecommendations[currentProfileIndex];
 
-	// --- 자동/수동 스와이프 로직 ---
+	// --- 스와이프 로직 ---
 	function nextProfile() {
 		if (currentProfileIndex < displayRecommendations.length - 1) {
 			currentProfileIndex++;
 		} else {
 			customAlertMessage = '오늘의 추천이 끝났습니다!\n내일 다시 확인해주세요.';
 			showCustomAlert = true;
-		}
-	}
-
-	function autoSwipe() {
-		if (displayRecommendations.length === 0) return;
-		currentProfileIndex = (currentProfileIndex + 1) % displayRecommendations.length;
-	}
-
-	function startAutoSwipe() {
-		if (autoSwipeTimer) return;
-		autoSwipeTimer = setInterval(() => {
-			autoSwipe();
-		}, 3000);
-	}
-
-	function stopAutoSwipe() {
-		if (autoSwipeTimer) {
-			clearInterval(autoSwipeTimer);
-			autoSwipeTimer = null;
-		}
-	}
-
-	$: {
-		if (!currentUser && displayRecommendations.length > 0 && !isLoading) {
-			startAutoSwipe();
-		} else {
-			stopAutoSwipe();
 		}
 	}
 
@@ -366,7 +335,6 @@
 				const myProfileRef = doc(db, 'members', myUid);
 				const targetProfileRef = doc(db, 'members', targetUid);
 
-				// 1. 'LIKE' 저장
 				const myUpdatePromise = updateDoc(myProfileRef, {
 					likeCount: newLikeCount,
 					[`likesSentCount.${targetUid}`]: increment(1)
@@ -376,31 +344,24 @@
 					[`likesReceivedCount.${myUid}`]: increment(1)
 				});
 
-				// 'totalLikes' 1 증가
 				const statsUpdatePromise = updateDoc(statsDocRef, {
 					totalLikes: increment(1)
 				});
 
 				await Promise.all([myUpdatePromise, targetUpdatePromise, statsUpdatePromise]);
 
-				// 2. 로컬 상태 업데이트
 				currentUser.profile.likeCount = newLikeCount;
 				if (!currentUser.profile.likesSentCount) currentUser.profile.likesSentCount = {};
 				currentUser.profile.likesSentCount[targetUid] =
 					(currentUser.profile.likesSentCount[targetUid] || 0) + 1;
 
-				// 3. 매치 확인
 				if (targetProfileData.likesSentCount && targetProfileData.likesSentCount[myUid] > 0) {
-					// 🚨 IT'S A MATCH! 🚨
-
-					// 4. 'matched' 필드 업데이트
 					const myMatchUpdate = updateDoc(myProfileRef, {
 						matched: arrayUnion(targetUid)
 					});
 					const targetMatchUpdate = updateDoc(targetProfileRef, {
 						matched: arrayUnion(myUid)
 					});
-					// 'totalMatches' 1 증가
 					const matchStatsUpdate = updateDoc(statsDocRef, {
 						totalMatches: increment(1)
 					});
@@ -412,7 +373,6 @@
 					matchedProfile = targetProfileData;
 					showMatchModal = true;
 				} else {
-					// 매치가 아니면 다음 프로필로
 					nextProfile();
 				}
 			} catch (err) {
@@ -426,7 +386,7 @@
 
 <div class="app-container">
 	<header class="app-header">
-		<h1 class="logo">fitmeet</h1>
+		<h1 class="logo">FitMeet</h1>
 		<div class="user-actions">
 			{#if currentUser && currentUser.profile}
 				<div class="header-like-counter">
@@ -446,22 +406,46 @@
 	<main class="main-content">
 		{#if isLoading}
 			<div class="empty-state"><p>추천 상대를 불러오는 중입니다...</p></div>
+		{:else if !currentUser}
+			<div class="empty-state">
+				<div class="guest-swiper-container">
+					<swiper-container
+						effect="fade"
+						autoplay-delay="5000"
+						autoplay-pause-on-mouse-enter="false"
+						loop="true"
+						speed="1000"
+						class="guest-swiper"
+					>
+						{#each guestImages as img}
+							<swiper-slide>
+								<img src={img} alt="추천 회원 예시" class="blurred-photo" />
+							</swiper-slide>
+						{/each}
+					</swiper-container>
+				</div>
+
+				<p>로그인하고<br />새로운 핏메이트를 찾아보세요!</p>
+				<button class="btn-login-main" on:click={handleProfileClick}>
+					🚀 구글 계정으로 시작하기
+				</button>
+			</div>
+		{:else if showCreateProfileModal}
+			<div class="empty-state">
+				<p>프로필을 생성하고<br />추천을 받아보세요!</p>
+			</div>
 		{:else if currentProfile}
 			<ProfileCard
 				bind:this={profileCardInstance}
 				profile={currentProfile}
-				isBlurred={!currentUser}
-				buttonsDisabled={!currentUser}
+				isBlurred={false}
+				buttonsDisabled={false}
 				on:pass={handlePass}
 				on:like={handleLike}
 			/>
 		{:else}
 			<div class="empty-state">
-				{#if !currentUser || !currentUser.profile}
-					<p>로그인 및 프로필 생성을<br />완료해주세요.</p>
-				{:else}
-					<p>더 이상 추천할 회원이 없습니다.</p>
-				{/if}
+				<p>더 이상 추천할 회원이 없습니다.<br />내일 다시 확인해주세요!</p>
 			</div>
 		{/if}
 	</main>
@@ -499,7 +483,7 @@
 </div>
 
 <style>
-	/* (스타일은 기존과 동일) */
+	/* ... (기존 스타일 동일) ... */
 	:global(body) {
 		margin: 0;
 		padding: 0;
@@ -514,7 +498,7 @@
 	}
 	.app-container {
 		max-width: 500px;
-		height: 100dvh;
+		height: calc(100dvh - 60px);
 		margin: 0 auto;
 		background-color: #fff;
 		display: flex;
@@ -578,11 +562,49 @@
 	.empty-state {
 		flex: 1;
 		display: flex;
+		flex-direction: column;
 		justify-content: center;
 		align-items: center;
 		color: #999;
 		font-size: 18px;
 		text-align: center;
 		line-height: 1.6;
+	}
+
+	.btn-login-main {
+		background-color: #ff6b6b;
+		color: white;
+		border: none;
+		padding: 14px 24px;
+		border-radius: 30px;
+		font-size: 16px;
+		font-weight: bold;
+		cursor: pointer;
+		margin-top: 20px;
+		transition: background-color 0.2s;
+	}
+	.btn-login-main:hover {
+		background-color: #e55b5b;
+	}
+
+	/* [ 5. CSS 추가 ] 게스트 슬라이드쇼 */
+	.guest-swiper-container {
+		width: 100%;
+		aspect-ratio: 1;
+		border-radius: 16px;
+		overflow: hidden;
+		margin-bottom: 24px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+	}
+	.guest-swiper {
+		width: 100%;
+		height: 100%;
+	}
+	.blurred-photo {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		filter: blur(5px);
+		transform: scale(1.1); /* 블러 가장자리를 부드럽게 */
 	}
 </style>

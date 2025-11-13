@@ -1,4 +1,3 @@
-[cutiefunny/fitmeet/fitmeet-fba7ac078c9c20e302896d787e80301a51ec0c6c/src/lib/components/SettingsModal.svelte]
 <script>
 	import { createEventDispatcher } from 'svelte';
 
@@ -26,22 +25,6 @@
 			</div>
 		</div>
 		<div class="modal-actions">
-			<a
-				href="/likes"
-				class="btn-likes"
-				sveltekit:prefetch
-				on:click={() => dispatch('close')}
-			>
-				❤️ 받은 LIKE 확인
-			</a>
-			<a
-				href="/matches"
-				class="btn-matches"
-				sveltekit:prefetch
-				on:click={() => dispatch('close')}
-			>
-				🤝 매칭 목록 확인
-			</a>
 			<button class="edit-profile-btn" on:click={() => dispatch('editProfile')}>프로필 수정</button>
 			<button class="logout-btn" on:click={() => dispatch('logout')}>로그아웃</button>
 		</div>
@@ -59,45 +42,7 @@
 		margin-bottom: 10px;
 	}
 
-	/* [ 2. 링크 버튼 스타일 추가 ] */
-	.btn-likes {
-		display: block;
-		width: 100%;
-		padding: 12px;
-		background-color: #fce4ec; /* Light pink */
-		color: #d81b60; /* Dark pink */
-		border: none;
-		border-radius: 8px;
-		font-size: 16px;
-		font-weight: bold;
-		cursor: pointer;
-		transition: background-color 0.2s;
-		text-decoration: none;
-		box-sizing: border-box; /* padding이 width 100%를 넘지 않도록 */
-	}
-	.btn-likes:hover {
-		background-color: #f8bbd0;
-	}
-
-	/* [ 3. 신규 ] 매칭 목록 버튼 스타일 추가 */
-	.btn-matches {
-		display: block;
-		width: 100%;
-		padding: 12px;
-		background-color: #e6f7ff; /* Light blue */
-		color: #096dd9; /* Dark blue */
-		border: none;
-		border-radius: 8px;
-		font-size: 16px;
-		font-weight: bold;
-		cursor: pointer;
-		transition: background-color 0.2s;
-		text-decoration: none;
-		box-sizing: border-box;
-	}
-	.btn-matches:hover {
-		background-color: #bae7ff;
-	}
+	/* [ 2. 수정 ] 링크 버튼 스타일 제거 (btn-likes, btn-matches) */
 
 	/* (이하 기존 스타일 동일) */
 	.modal-overlay {
