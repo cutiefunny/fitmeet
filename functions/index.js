@@ -3,11 +3,10 @@
  */
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
-// [ 1. 수정 ] onDocumentUpdated 임포트
 const {
 	onDocumentDeleted,
 	onDocumentCreated,
-	onDocumentUpdated // 신규
+	onDocumentUpdated
 } = require("firebase-functions/v2/firestore");
 const { logger } = require("firebase-functions");
 const { initializeApp } = require("firebase-admin/app");
@@ -108,25 +107,106 @@ exports.onChatRoomDeleted = onDocumentDeleted("chats/{chatId}", async (event) =>
 	}
 });
 
-// --- [ 2. 수정 ] onMessageCreated 함수 ---
-// (수신자의 'notificationSettings.chats' 확인 로직 추가)
+// --- [ 1. 수정 ] onMessageCreated 함수 ---
+
+// (기존) 하드코딩된 정규식
+const phoneRegex = /(010|02|0\d{1,2})[ \-.]?\d{3,4}[ \-.]?\d{4}/g;
+const emailRegex = /[\w-\.]+@([\w-]+\.)+[\w-]{2,4}/g;
+const instaRegex = /(instagram\.com\/[a-zA-Z0-9_.]+|@[a-zA-Z0-9_.]+)/gi;
+
+// (신규) 정규식 특수 문자를 이스케이프하는 헬퍼
+function escapeRegExp(string) {
+	return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 exports.onMessageCreated = onDocumentCreated(
 	"chats/{chatId}/messages/{messageId}",
 	async (event) => {
 		const messageData = event.data.data();
 		const chatId = event.params.chatId;
+		const messageId = event.params.messageId;
 
 		const senderId = messageData.senderId;
-		const messageText = messageData.text || "사진을 보냈습니다.";
+		const messageText = messageData.text || "";
 
+		// --- [ 2. 신규 ] 서버 측 개인정보 검증 (DB 연동) ---
+		let isBlocked = false;
+
+		// 1. 하드코딩된 정규식 검사
+		if (
+			phoneRegex.test(messageText) ||
+			emailRegex.test(messageText) ||
+			instaRegex.test(messageText)
+		) {
+			isBlocked = true;
+		}
+
+		// 2. Firestore의 'bannedWords' 목록 검사
+		if (!isBlocked) {
+			try {
+				const filteringDocRef = db.collection("config").doc("filtering");
+				const filteringSnap = await filteringDocRef.get();
+				
+				if (filteringSnap.exists) {
+					const bannedWords = filteringSnap.data().bannedWords || [];
+					if (bannedWords.length > 0) {
+						// (중요) 단어 목록으로 동적 정규식 생성 (이스케이프 포함)
+						const bannedWordPattern = bannedWords.map(escapeRegExp).join('|');
+						const bannedWordRegex = new RegExp(bannedWordPattern, 'giu'); // 'u' 플래그로 유니코드 지원
+						
+						if (bannedWordRegex.test(messageText)) {
+							isBlocked = true;
+						}
+					}
+				}
+			} catch (e) {
+				logger.error(`[Filter] Error fetching banned words: ${e.message}`);
+				// (DB 조회 실패 시 일단 통과시킴 - 선택 사항)
+			}
+		}
+
+		// 3. 차단 로직 실행
+		if (isBlocked) {
+			logger.warn(
+				`[Filter] Deleting message ${messageId} from ${senderId} due to filtered content.`
+			);
+
+			// (수정) 메시지 삭제 대신 'isBlocked' 플래그를 true로 업데이트
+			// (사용자에게 차단 사실을 명확히 보여주기 위함)
+			await event.data.ref.update({
+				isBlocked: true,
+				text: "(개인정보/부적절한 단어가 포함되어 차단된 메시지입니다.)"
+			});
+
+			// 채팅방 'lastMessage' 업데이트
+			const chatDocRef = db.collection("chats").doc(chatId);
+			await chatDocRef.set(
+				{
+					lastMessage: "(차단된 메시지)",
+					lastMessageTimestamp: messageData.timestamp,
+					readBy: { [senderId]: true },
+					isBlocked: true
+				},
+				{ merge: true }
+			);
+
+			// 푸시 알림 및 이후 로직 중단
+			return null;
+		}
+
+		// --- (이하 푸시 알림 로직은 기존과 동일) ---
+		
 		logger.log(`[Push-Chat] New message from ${senderId} in chat ${chatId}`);
 
-		// 1. 수신자 UID 찾기
 		const chatDocRef = db.collection("chats").doc(chatId);
 		const chatDocSnap = await chatDocRef.get();
 		if (!chatDocSnap.exists) {
 			logger.warn(`[Push-Chat] Chat doc ${chatId} not found.`);
 			return null;
+		}
+
+		if (chatDocSnap.data().isBlocked) {
+			await chatDocRef.update({ isBlocked: false });
 		}
 
 		const participants = chatDocSnap.data().participants || [];
@@ -137,7 +217,6 @@ exports.onMessageCreated = onDocumentCreated(
 			return null;
 		}
 
-		// 2. 수신자 프로필(토큰 및 설정) 조회
 		const recipientDocRef = db.collection("members").doc(recipientId);
 		const recipientDocSnap = await recipientDocRef.get();
 		if (!recipientDocSnap.exists) {
@@ -146,28 +225,24 @@ exports.onMessageCreated = onDocumentCreated(
 		}
 		const recipientData = recipientDocSnap.data();
 
-		// [ ⭐️ 신규 ⭐️ ] 3. 수신자의 '채팅' 알림 설정 확인
 		const settings = recipientData.notificationSettings || {};
-		if (settings.chats === false) { // (undefined는 true로 간주)
+		if (settings.chats === false) {
 			logger.log(`[Push-Chat] Recipient ${recipientId} has 'chats' notifications disabled.`);
 			return null;
 		}
 
-		// 4. 수신자 토큰 확인
 		const tokens = recipientData.fcmTokens || [];
 		if (tokens.length === 0) {
 			logger.log(`[Push-Chat] Recipient ${recipientId} has no FCM tokens.`);
 			return null;
 		}
 
-		// 5. 발신자 이름 조회
 		const senderDocRef = db.collection("members").doc(senderId);
 		const senderDocSnap = await senderDocRef.get();
 		const senderName = senderDocSnap.exists
 			? senderDocSnap.data().name
 			: "누군가";
 
-		// 6. 페이로드 구성 (data-only)
 		const messages = tokens.map((token) => ({
 			data: {
 				title: `${senderName}님`,
@@ -185,7 +260,6 @@ exports.onMessageCreated = onDocumentCreated(
 		}));
 
 		try {
-			// 7. 발송 및 토큰 정리 (기존과 동일)
 			const response = await messaging.sendEach(messages);
 			logger.log(`[Push-Chat] Successfully sent message to ${response.successCount} tokens.`);
 			
@@ -210,13 +284,14 @@ exports.onMessageCreated = onDocumentCreated(
 	}
 );
 
-// --- [ 3. 신규 ] '좋아요' 및 '매칭' 알림 트리거 ---
+// --- [ 4. 수정 ] onMemberUpdate 함수 ---
+// (기존과 동일)
 exports.onMemberUpdate = onDocumentUpdated("members/{userId}", async (event) => {
+	// ... (기존 좋아요/매칭 알림 코드)
 	const beforeData = event.data.before.data();
 	const afterData = event.data.after.data();
-	const userId = event.params.userId; // 알림을 '받을' 사람
+	const userId = event.params.userId;
 
-	// 1. 설정 확인 (알림 설정 객체가 없으면 아무것도 안 함)
 	const settings = afterData.notificationSettings || {};
 	const tokens = afterData.fcmTokens || [];
 	
@@ -225,17 +300,15 @@ exports.onMemberUpdate = onDocumentUpdated("members/{userId}", async (event) => 
 		return null;
 	}
 
-	// 2. '매칭' 알림 확인 (settings.matches !== false 이고, matched 배열에 변화가 있을 때)
+	// 2. '매칭' 알림 확인
 	if (settings.matches !== false) {
 		const beforeMatched = beforeData.matched || [];
 		const afterMatched = afterData.matched || [];
 		
 		if (afterMatched.length > beforeMatched.length) {
-			// 새 매치 발생
 			const newMatcherUid = afterMatched.find((uid) => !beforeMatched.includes(uid));
 			if (newMatcherUid) {
 				logger.log(`[Push-Match] New match detected for ${userId} from ${newMatcherUid}`);
-				// 매치 상대(알림 보낸 사람)의 이름 조회
 				const matcherDoc = await db.collection("members").doc(newMatcherUid).get();
 				const matcherName = matcherDoc.exists ? matcherDoc.data().name : "누군가";
 
@@ -245,12 +318,11 @@ exports.onMemberUpdate = onDocumentUpdated("members/{userId}", async (event) => 
 						body: `${matcherName}님과 매치되었습니다!`,
 						icon: "/icon-192.png",
 						badge: "/icon-192.png",
-						url: "/matches" // 매치 목록으로 이동
+						url: "/matches"
 					},
 					webpush: { fcmOptions: { link: "/matches" } },
 					tokens: tokens
 				};
-				// (sendMulticast가 404 오류가 났었으므로 sendEach 사용)
 				const messages = tokens.map(token => ({ ...payload, token }));
 				await messaging.sendEach(messages);
 				logger.log(`[Push-Match] Sent match notification to ${userId}`);
@@ -258,20 +330,14 @@ exports.onMemberUpdate = onDocumentUpdated("members/{userId}", async (event) => 
 		}
 	}
 
-	// 3. '좋아요' 알림 확인 (settings.likes !== false 이고, likesReceivedCount가 변경되었을 때)
-	// (주의: 매치 시에도 likesReceivedCount가 같이 업데이트 될 수 있으므로, 매치 알림과 중복 발송될 수 있음)
-	// (-> 여기서는 '좋아요'가 먼저 오고 '매치'가 나중이라고 가정)
+	// 3. '좋아요' 알림 확인
 	if (settings.likes !== false) {
 		const beforeLikes = beforeData.likesReceivedCount || {};
 		const afterLikes = afterData.likesReceivedCount || {};
 		
-		// '좋아요'를 보낸 UID 찾기
 		let newLikerUid = null;
 		for (const uid of Object.keys(afterLikes)) {
 			if ((afterLikes[uid] || 0) > (beforeLikes[uid] || 0)) {
-				// 이 사람이 새로 '좋아요'를 보냈거나 횟수를 증가시킴
-				
-				// 단, 이미 매치된 사람의 좋아요는 알림을 보내지 않음 (중복 방지)
 				const isAlreadyMatched = (afterData.matched || []).includes(uid);
 				if (!isAlreadyMatched) {
 					newLikerUid = uid;
@@ -282,7 +348,6 @@ exports.onMemberUpdate = onDocumentUpdated("members/{userId}", async (event) => 
 
 		if (newLikerUid) {
 			logger.log(`[Push-Like] New like detected for ${userId} from ${newLikerUid}`);
-			// '좋아요' 보낸 사람의 이름 조회
 			const likerDoc = await db.collection("members").doc(newLikerUid).get();
 			const likerName = likerDoc.exists ? likerDoc.data().name : "누군가";
 			
@@ -292,7 +357,7 @@ exports.onMemberUpdate = onDocumentUpdated("members/{userId}", async (event) => 
 					body: `${likerName}님이 회원님에게 'LIKE'를 보냈습니다!`,
 					icon: "/icon-192.png",
 					badge: "/icon-192.png",
-					url: "/likes" // '받은 LIKE' 목록으로 이동
+					url: "/likes"
 				},
 				webpush: { fcmOptions: { link: "/likes" } },
 				tokens: tokens

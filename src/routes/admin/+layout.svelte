@@ -34,6 +34,14 @@
 			</li>
 			<li>
 				<a
+					href="/admin/filtering"
+					class:active={$page.route.id?.startsWith('/admin/filtering')}
+				>
+					🚫 필터링 관리
+				</a>
+			</li>
+			<li>
+				<a
 					href="/admin/loginHistory"
 					class:active={$page.route.id?.startsWith('/admin/loginHistory')}
 				>

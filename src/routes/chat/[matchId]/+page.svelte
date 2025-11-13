@@ -12,9 +12,10 @@
 		serverTimestamp,
 		doc,
 		getDoc,
-		setDoc // [ 1. 'setDoc' 임포트 추가 ]
+		setDoc
 	} from 'firebase/firestore';
 	import { tick } from 'svelte';
+	import AlertModal from '$lib/components/AlertModal.svelte';
 
 	let currentUser = null;
 	let targetUser = null;
@@ -29,6 +30,22 @@
 	let unsubscribeMessages;
 
 	let messageListEl;
+	let showCustomAlert = false;
+	let customAlertMessage = '';
+
+	// [ 1. 신규 ] 필터링 목록
+	let bannedWords = [];
+	let bannedWordRegex = null; // 동적으로 생성될 정규식
+
+	// (기존) 하드코딩된 정규식
+	const phoneRegex = /(010|02|0\d{1,2})[ \-.]?\d{3,4}[ \-.]?\d{4}/;
+	const emailRegex = /[\w-\.]+@([\w-]+\.)+[\w-]{2,4}/;
+	const instaRegex = /(instagram\.com\/[a-zA-Z0-9_.]+|@[a-zA-Z0-9_.]+)/i;
+	
+	// (신규) 정규식 특수 문자 이스케이프 헬퍼
+	function escapeRegExp(string) {
+		return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	}
 
 	async function scrollToBottom() {
 		await tick();
@@ -37,14 +54,11 @@
 		}
 	}
 
-	// [ 2. markAsRead 함수 추가 ]
-	// 현재 채팅방을 '읽음'으로 처리
 	async function markAsRead(uid, cId) {
+		// ... (이전과 동일)
 		if (!uid || !cId) return;
-
 		const chatRoomDocRef = doc(db, 'chats', cId);
 		try {
-			// 'readBy' 맵의 '내' 필드만 'true'로 덮어쓰기 (merge: true)
 			await setDoc(
 				chatRoomDocRef,
 				{
@@ -52,24 +66,43 @@
 						[uid]: true
 					}
 				},
-				{ merge: true } // merge: true가 중요
+				{ merge: true }
 			);
 		} catch (e) {
 			console.error('읽음 처리 실패:', e);
 		}
 	}
 
+	// [ 2. 신규 ] 필터링 목록 로드 함수
+	async function fetchFilterList() {
+		try {
+			const filteringDocRef = doc(db, 'config', 'filtering');
+			const filteringSnap = await getDoc(filteringDocRef);
+			if (filteringSnap.exists()) {
+				bannedWords = filteringSnap.data().bannedWords || [];
+				if (bannedWords.length > 0) {
+					// 동적 정규식 생성
+					const bannedWordPattern = bannedWords.map(escapeRegExp).join('|');
+					bannedWordRegex = new RegExp(bannedWordPattern, 'giu');
+				}
+			}
+		} catch (e) {
+			console.error('필터 목록 로드 실패:', e);
+			// (실패해도 채팅은 가능해야 함)
+		}
+	}
+
 	onMount(() => {
+		// [ 3. 수정 ] onMount에서 필터 목록 로드
+		fetchFilterList();
+
 		unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
 			if (user) {
 				currentUser = user;
-
-				// 1. 채팅방 ID 생성
 				const uids = [user.uid, targetUserId].sort();
 				chatRoomId = uids.join('_');
 				messagesColRef = collection(db, 'chats', chatRoomId, 'messages');
 
-				// 2. 상대방 정보 가져오기
 				try {
 					const targetDocRef = doc(db, 'members', targetUserId);
 					const targetDocSnap = await getDoc(targetDocRef);
@@ -80,9 +113,7 @@
 					console.error('상대방 정보 로딩 실패:', e);
 				}
 
-				// 3. 실시간 메시지 리스너 설정
 				const q = query(messagesColRef, orderBy('timestamp', 'asc'));
-
 				unsubscribeMessages = onSnapshot(
 					q,
 					(snapshot) => {
@@ -92,13 +123,10 @@
 						}));
 						isLoading = false;
 						scrollToBottom();
-
-						// 4. (중요) 메시지를 불러온 직후, '읽음'으로 처리
 						markAsRead(currentUser.uid, chatRoomId);
 					},
 					(error) => {
 						console.error('메시지 수신 오류:', error);
-						alert('메시지를 불러오는 데 실패했습니다.');
 						isLoading = false;
 					}
 				);
@@ -114,13 +142,36 @@
 		};
 	});
 
-	// [ 3. 'sendMessage' 함수 수정 ]
+	// [ 4. 'sendMessage' 함수 수정 ]
 	async function sendMessage() {
 		const text = newMessage.trim();
 		if (text === '' || !currentUser || !messagesColRef || !chatRoomId) return;
 
-		newMessage = '';
+		// [ 5. 수정 ] 클라이언트 측 개인정보 검증 (동적 목록 포함)
+		if (phoneRegex.test(text)) {
+			customAlertMessage = '안전한 대화를 위해\n전화번호를 전송할 수 없습니다.';
+			showCustomAlert = true;
+			return;
+		}
+		if (emailRegex.test(text)) {
+			customAlertMessage = '안전한 대화를 위해\n이메일 주소를 전송할 수 없습니다.';
+			showCustomAlert = true;
+			return;
+		}
+		if (instaRegex.test(text)) {
+			customAlertMessage = '안전한 대화를 위해\nSNS ID 또는 주소를 전송할 수 없습니다.';
+			showCustomAlert = true;
+			return;
+		}
+		// (신규) 동적 필터 목록 검사
+		if (bannedWordRegex && bannedWordRegex.test(text)) {
+			customAlertMessage = '부적절한 단어가 포함되어\n메시지를 전송할 수 없습니다.';
+			showCustomAlert = true;
+			return;
+		}
 
+		// (검증 통과)
+		newMessage = '';
 		const newTimestamp = serverTimestamp();
 
 		try {
@@ -129,33 +180,33 @@
 				text: text,
 				senderId: currentUser.uid,
 				timestamp: newTimestamp
+				// (isBlocked는 서버에서 처리)
 			});
 
 			// 2. 'chats' 상위 문서 업데이트
 			const chatRoomDocRef = doc(db, 'chats', chatRoomId);
-
-			// (신규) 'readBy' 맵 생성: 보낸 나는 true, 받는 상대는 false
 			const readByStatus = {
 				[currentUser.uid]: true,
 				[targetUserId]: false
 			};
-
 			await setDoc(
 				chatRoomDocRef,
 				{
 					participants: [currentUser.uid, targetUserId],
 					lastSenderId: currentUser.uid,
-					lastMessage: text,
+					lastMessage: text, // (서버에서 차단되면 이 값이 덮어써짐)
 					lastMessageTimestamp: newTimestamp,
-					readBy: readByStatus // '읽지 않음' 상태 추가
+					readBy: readByStatus,
+					isBlocked: false // (일단 false로 보내고 서버가 판단)
 				},
-				{ merge: true } // participants 필드가 이미 있다면 덮어쓰지 않음
+				{ merge: true }
 			);
 
 			scrollToBottom();
 		} catch (error) {
 			console.error('Error sending message:', error);
-			alert('메시지 전송에 실패했습니다.');
+			customAlertMessage = '메시지 전송에 실패했습니다.';
+			showCustomAlert = true;
 			newMessage = text;
 		}
 	}
@@ -188,8 +239,16 @@
 						class="message-bubble"
 						class:sent={message.senderId === currentUser.uid}
 						class:received={message.senderId !== currentUser.uid}
+						class:blocked={message.isBlocked}
 					>
-						<p>{message.text}</p>
+						{#if message.isBlocked}
+							<p class="blocked-message">
+								<i>{message.text}</i>
+							</p>
+						{:else}
+							<p>{message.text}</p>
+						{/if}
+
 						{#if message.timestamp}
 							<span>{message.timestamp.toDate().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
 						{/if}
@@ -208,10 +267,14 @@
 		/>
 		<button type="submit" disabled={!currentUser || newMessage.trim() === ''}>전송</button>
 	</form>
+
+	{#if showCustomAlert}
+		<AlertModal message={customAlertMessage} on:close={() => (showCustomAlert = false)} />
+	{/if}
 </div>
 
 <style>
-	/* ... (스타일은 이전과 동일) ... */
+	/* ... (기존 스타일 :global(body), .app-container, .app-header 등 동일) ... */
 	:global(body) {
 		margin: 0;
 		padding: 0;
@@ -324,6 +387,25 @@
 	.message-bubble.received span {
 		color: #888;
 	}
+
+	/* [ 7. 수정 ] 차단된 메시지 스타일 */
+	.blocked-message {
+		color: #888;
+		font-size: 14px !important;
+	}
+	.message-bubble.sent.blocked .blocked-message {
+		color: #ffdada; /* 보낸 메시지 차단 시 */
+	}
+	.message-bubble.received.blocked .blocked-message {
+		color: #aaa; /* 받은 메시지 차단 시 */
+	}
+	.message-bubble.blocked {
+		background-color: #f0f0f0;
+	}
+	.message-bubble.sent.blocked {
+		background-color: #dcb8b8;
+	}
+
 	.chat-form {
 		display: flex;
 		gap: 10px;
