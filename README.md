@@ -74,4 +74,4 @@ VITE_FIREBASE_VAPID_KEY=your_fcm_vapid_key
 │   └── app.html
 └── static/             # 정적 이미지 및 manifest.json
 📸 스크린샷 (Screenshots)메인 (스와이프)프로필 상세채팅 화면
-<img src="/static/screenshot1.jpg" width="200" /><img src="/static/screenshot2.jpg" width="200" /><img src="/static/screenshot3.jpg" width="200" />📄 라이선스 (License)This project is licensed under the MIT License.
+![Project Banner](/static/screenshot1.jpg)
