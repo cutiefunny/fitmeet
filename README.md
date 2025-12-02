@@ -4,7 +4,7 @@
 ![Firebase](https://img.shields.io/badge/Firebase-039BE5?style=for-the-badge&logo=Firebase&logoColor=white)
 ![PWA](https://img.shields.io/badge/PWA-5A0FC8?style=for-the-badge&logo=pwa&logoColor=white)
 ![Vercel](https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)
-![Project Banner](/static/screenshot1.jpg)
+![Project Banner](/static/screenshot2.jpg)
 
 > **"나와 딱 맞는 운동 메이트를 찾아보세요!"** > FitMeet은 사용자의 위치, 주 종목, 나이 등을 기반으로 최적의 운동 파트너를 추천해 주는 PWA 기반 웹 애플리케이션입니다.
 
@@ -74,4 +74,3 @@ VITE_FIREBASE_VAPID_KEY=your_fcm_vapid_key
 │   ├── service-worker.js # PWA 및 푸시 알림 처리
 │   └── app.html
 └── static/             # 정적 이미지 및 manifest.json
-📸 스크린샷 (Screenshots)메인 (스와이프)프로필 상세채팅 화면
